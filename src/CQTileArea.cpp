@@ -1,4 +1,4 @@
-#include <CQTileArea/CQTileArea.h>
+#include <CQTileArea.h>
 #include <QVBoxLayout>
 #include <QStackedWidget>
 #include <QTabBar>
