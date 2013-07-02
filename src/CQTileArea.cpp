@@ -13,10 +13,10 @@
 #include <cassert>
 #include <cmath>
 
-#include <close.xpm>
-#include <maximize.xpm>
-#include <minimize.xpm>
-#include <restore.xpm>
+#include <images/close.xpm>
+#include <images/maximize.xpm>
+#include <images/minimize.xpm>
+#include <images/restore.xpm>
 
 namespace CQTileAreaConstants {
   bool debug_grid        = true;
@@ -1652,7 +1652,7 @@ setHighlight(const QPoint &pos)
     int dy2 = abs(tl.y() + placementArea.y2() - pos.y());
 
     int  d;
-    Side side;
+    Side side = NO_SIDE;
 
     if      (pos.x() < tl.x() + placementArea.x1()) {
       if      (pos.y() < tl.y() + placementArea.y1()) {
@@ -2171,26 +2171,9 @@ CQTileWindowTitle::
 CQTileWindowTitle(CQTileWindowArea *area) :
  area_(area), maximized_(false)
 {
-  setObjectName("title");
-
-  QFontMetrics fm(font());
-
-  setFixedHeight(fm.height() + 4);
-
-  minimizeButton_ = new CQTileWindowTitleButton(this);
-  maximizeButton_ = new CQTileWindowTitleButton(this);
-  closeButton_    = new CQTileWindowTitleButton(this);
-
-  //minimizeButton_->setIcon(style()->standardIcon(QStyle::SP_TitleBarMinButton  , 0, this));
-  //maximizeButton_->setIcon(style()->standardIcon(QStyle::SP_TitleBarMaxButton  , 0, this));
-  //closeButton_   ->setIcon(style()->standardIcon(QStyle::SP_TitleBarCloseButton, 0, this));
-  minimizeButton_->setIcon(QPixmap(minimize_data));
-  maximizeButton_->setIcon(QPixmap(maximize_data));
-  closeButton_   ->setIcon(QPixmap(close_data));
-
-  minimizeButton_->show();
-  maximizeButton_->show();
-  closeButton_   ->show();
+  minimizeButton_ = addButton(QPixmap(minimize_data));
+  maximizeButton_ = addButton(QPixmap(maximize_data));
+  closeButton_    = addButton(QPixmap(close_data   ));
 
   connect(minimizeButton_, SIGNAL(clicked()), area, SLOT(minimizeSlot()));
   connect(maximizeButton_, SIGNAL(clicked()), area, SLOT(maximizeSlot()));
@@ -2208,78 +2191,22 @@ setMaximized(bool maximized)
   maximizeButton_->setIcon(maximized_ ? QPixmap(restore_data) : QPixmap(maximize_data));
 }
 
-void
+QColor
 CQTileWindowTitle::
-paintEvent(QPaintEvent *)
+backgroundColor() const
 {
   bool current = (area_ == area_->area()->currentArea());
 
-  //const int PanelMargin = 2;
-
-  QPainter p(this);
-
-  QColor bgColor = (! current ? QColor(160,160,160) : QColor(120,120,160));
-
-  //QColor bgColor = palette().color(QPalette::Window);
-
-  p.fillRect(rect(), bgColor);
-
-  //p->setPen(QPen(palette().window().color().darker(120)));
-  QColor barColor = (! current ? QColor(120,120,120) : QColor(80,80,80));
-
-  drawTitleBarLine(&p, rect(), barColor);
-
-  QString title = area_->getTitle();
-
-  if (! title.isEmpty()) {
-    QFontMetrics fm(font());
-
-    int tw = fm.width(title);
-
-    p.fillRect(QRect(0, 0, tw + 8, height()), bgColor);
-
-    p.setPen(palette().color(QPalette::Text));
-
-    p.drawText(2, height()/2 + fm.descent() + 1, title);
-  }
-
-  //p.setPen(QPen(palette().window().color().darker(110)));
-  //p.setPen(QColor(100,100,150));
-
-  //p.drawLine(0, height() - 1, width() - 1, height() - 1);
-
-  int bw = minimizeButton_->width();
-
-  p.fillRect(QRect(width() - 3*bw, 0, 3*bw, height()), bgColor);
+  return (! current ? QColor(160,160,160) : QColor(120,120,160));
 }
 
-void
+QColor
 CQTileWindowTitle::
-resizeEvent(QResizeEvent *)
+barColor() const
 {
-  int bw = minimizeButton_->width();
+  bool current = (area_ == area_->area()->currentArea());
 
-  minimizeButton_->move(width() - 3*bw, 0);
-  maximizeButton_->move(width() - 2*bw, 0);
-  closeButton_   ->move(width() - 1*bw, 0);
-}
-
-void
-CQTileWindowTitle::
-drawTitleBarLine(QPainter *p, const QRect &r, const QColor &c)
-{
-  p->setPen(c);
-
-  int left  = r.left () + 2;
-  int right = r.right() - 2;
-
-  int y = r.center().y() - 3;
-
-  for (int i = 0; i < 4; ++i) {
-    int y1 = y + 2*i;
-
-    p->drawLine(left, y1, right, y1);
-  }
+  return (! current ? QColor(120,120,120) : QColor(80,80,80));
 }
 
 void
@@ -2389,61 +2316,6 @@ event(QEvent *e)
   }
 
   return QWidget::event(e);
-}
-
-//-------
-
-CQTileWindowTitleButton::
-CQTileWindowTitleButton(QWidget *parent) :
- QToolButton(parent)
-{
-  setIconSize(QSize(10,10));
-
-  setAutoRaise(true);
-
-  setFocusPolicy(Qt::NoFocus);
-
-  setCursor(Qt::ArrowCursor);
-}
-
-void
-CQTileWindowTitleButton::
-paintEvent(QPaintEvent *)
-{
-  QStylePainter p(this);
-
-  QStyleOptionToolButton opt;
-
-  opt.initFrom(this);
-
-  opt.iconSize = iconSize(); //default value
-
-  opt.icon = icon();
-
-  if (isDown())
-    opt.state |= QStyle::State_Sunken;
-  else
-    opt.state |= QStyle::State_Raised;
-
-  opt.state |= QStyle::State_AutoRaise;
-
-  opt.subControls = QStyle::SC_ToolButton;
-
-  if (isDown())
-    opt.activeSubControls = QStyle::SC_ToolButton;
-  else
-    opt.activeSubControls = QStyle::SC_None;
-
-  opt.features = QStyleOptionToolButton::None;
-
-  opt.toolButtonStyle = Qt::ToolButtonIconOnly;
-
-  opt.pos  = pos();
-  opt.font = font();
-
-  initStyleOption(&opt);
-
-  p.drawComplexControl(QStyle::CC_ToolButton, opt);
 }
 
 //-------

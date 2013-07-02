@@ -373,21 +373,18 @@ class CQTileWindow : public QWidget {
 
 //------
 
-class CQTileWindowTitleButton;
+#include <CQTitleBar.h>
 
 // widget for window area title bar
-class CQTileWindowTitle : public QWidget {
+class CQTileWindowTitle : public CQTitleBar {
  public:
   CQTileWindowTitle(CQTileWindowArea *area);
 
   void setMaximized(bool maximized);
 
  private:
-  void paintEvent(QPaintEvent *);
-
-  void resizeEvent(QResizeEvent *);
-
-  void drawTitleBarLine(QPainter *p, const QRect &r, const QColor &c);
+  QColor backgroundColor() const;
+  QColor barColor() const;
 
   void mousePressEvent  (QMouseEvent *e);
   void mouseMoveEvent   (QMouseEvent *e);
@@ -413,20 +410,12 @@ class CQTileWindowTitle : public QWidget {
     }
   };
 
-  CQTileWindowArea        *area_;
-  MouseState               mouseState_;
-  CQTileWindowTitleButton *minimizeButton_;
-  CQTileWindowTitleButton *maximizeButton_;
-  CQTileWindowTitleButton *closeButton_;
-  bool                     maximized_;
-};
-
-class CQTileWindowTitleButton : public QToolButton {
- public:
-  CQTileWindowTitleButton(QWidget *parent);
-
- private:
-  void paintEvent(QPaintEvent *);
+  CQTileWindowArea *area_;
+  MouseState        mouseState_;
+  CQTitleBarButton *minimizeButton_;
+  CQTitleBarButton *maximizeButton_;
+  CQTitleBarButton *closeButton_;
+  bool              maximized_;
 };
 
 #endif
