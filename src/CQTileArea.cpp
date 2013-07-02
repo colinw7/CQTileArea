@@ -25,7 +25,6 @@ namespace CQTileAreaConstants {
   bool combine_splitters = true;
   bool detach_tab        = true;
   bool animated_preview  = true;
-  bool rand_resize       = false;
 }
 
 CQTileArea::
@@ -47,8 +46,8 @@ addWindow(QWidget *w)
   // new grid postion is next column with a height of all rows
   // (ensure at least one row if table empty)
   int row   = 0;
-  int col   = grid_.ncols;
-  int nrows = std::max(grid_.nrows, 1);
+  int col   = grid_.ncols();
+  int nrows = std::max(grid_.nrows(), 1);
   int ncols = 1;
 
   return addWindow(w, row, col, nrows, ncols);
@@ -99,8 +98,8 @@ addWindowArea(CQTileWindowArea *windowArea, int row, int col, int nrows, int nco
     row = 0;
   }
   // insert bottom
-  else if (row >= grid_.nrows)
-    insertRows(grid_.nrows, row - grid_.nrows + 1);
+  else if (row >= grid_.nrows())
+    insertRows(grid_.nrows(), row - grid_.nrows() + 1);
 
   // insert left
   if      (col < 0) {
@@ -108,8 +107,8 @@ addWindowArea(CQTileWindowArea *windowArea, int row, int col, int nrows, int nco
     col = 0;
   }
   // insert right
-  else if (col >= grid_.ncols)
-    insertColumns(grid_.ncols, col - grid_.ncols + 1);
+  else if (col >= grid_.ncols())
+    insertColumns(grid_.ncols(), col - grid_.ncols() + 1);
 
   //------
 
@@ -135,10 +134,10 @@ addWindowArea(CQTileWindowArea *windowArea, int row, int col, int nrows, int nco
     if (nrows > ncols) {
       int splitCol = col;
 
-      for ( ; splitCol > 0 && splitCol < grid_.ncols; ++splitCol) {
+      for ( ; splitCol > 0 && splitCol < grid_.ncols(); ++splitCol) {
         bool valid = true;
 
-        for (int r = 0; r < grid_.nrows; ++r) {
+        for (int r = 0; r < grid_.nrows(); ++r) {
           if (grid_.cell(r, splitCol - 1) == grid_.cell(r, splitCol)) {
             valid = false;
             break;
@@ -157,10 +156,10 @@ addWindowArea(CQTileWindowArea *windowArea, int row, int col, int nrows, int nco
     else {
       int splitRow = row;
 
-      for ( ; splitRow > 0 && splitRow < grid_.nrows; ++splitRow) {
+      for ( ; splitRow > 0 && splitRow < grid_.nrows(); ++splitRow) {
         bool valid = true;
 
-        for (int c = 0; c < grid_.ncols; ++c) {
+        for (int c = 0; c < grid_.ncols(); ++c) {
           if (grid_.cell(splitRow - 1, c) == grid_.cell(splitRow, c)) {
             valid = false;
             break;
@@ -183,9 +182,7 @@ addWindowArea(CQTileWindowArea *windowArea, int row, int col, int nrows, int nco
   // store area in grid
   int fillId = (windowArea ? windowArea->id() : 0);
 
-  for (int r = row; r <= row1; ++r)
-    for (int c = col; c <= col1; ++c)
-      grid_.cell(r, c) = fillId;
+  grid_.fill(row, col, row1, col1, fillId);
 
   //------
 
@@ -227,72 +224,14 @@ void
 CQTileArea::
 insertRows(int row, int nrows)
 {
-  // save old rows and cols
-  Grid grid = grid_;
-
-  // calc new cell grid
-  int nrows1 = grid_.nrows + nrows;
-  int ncols1 = std::max(grid_.ncols, 1);
-
-  grid_.setSize(nrows1, ncols1);
-
-  // populate new grid with old either side of the new rows
-  for (int r = 0; r < nrows1; ++r) {
-    for (int c = 0; c < ncols1; ++c) {
-      int &cell = grid_.cell(r, c);
-
-      if      (r < row)
-        cell = grid.cell(r, c);
-      else if (r > row)
-        cell = grid.cell(r - nrows, c);
-      else
-        cell = -1;
-    }
-  }
-
-  // ensure no areas are split
-  if (row > 0 && row < nrows1 - 1) {
-    for (int c = 0; c < ncols1; ++c) {
-      if (grid_.cell(row - 1, c) == grid_.cell(row + 1, c))
-        grid_.cell(row, c) = grid_.cell(row - 1, c);
-    }
-  }
+  grid_.insertRows(row, nrows);
 }
 
 void
 CQTileArea::
 insertColumns(int col, int ncols)
 {
-  // save old rows and cols
-  Grid grid = grid_;
-
-  // calc new cell grid
-  int nrows1 = std::max(grid_.nrows, 1);
-  int ncols1 = grid_.ncols + ncols;
-
-  grid_.setSize(nrows1, ncols1);
-
-  // populate new grid with old either side of the new colums
-  for (int r = 0; r < nrows1; ++r) {
-    for (int c = 0; c < ncols1; ++c) {
-      int &cell = grid_.cell(r, c);
-
-      if      (c < col)
-        cell = grid.cell(r, c);
-      else if (c > col)
-        cell = grid.cell(r, c - ncols);
-      else
-        cell = -1;
-    }
-  }
-
-  // ensure no areas are split
-  if (col > 0 && col < ncols1 - 1) {
-    for (int r = 0; r < nrows1; ++r) {
-      if (grid_.cell(r, col - 1) == grid_.cell(r, col + 1))
-        grid_.cell(r, col) = grid_.cell(r, col - 1);
-    }
-  }
+  grid_.insertColumns(col, ncols);
 }
 
 void
@@ -300,11 +239,7 @@ CQTileArea::
 removeWindowArea(CQTileWindowArea *window)
 {
   // reset cells for this window area to zero
-  int ncells = grid_.nrows*grid_.ncols;
-
-  for (int ci = 0; ci < ncells; ++ci)
-    if (grid_.cells[ci] == window->id())
-      grid_.cells[ci] = -1;
+  grid_.replace(window->id(), -1);
 
   if (isVisible()) {
     // remove empty cells and cleanup duplicate rows and columns
@@ -329,12 +264,7 @@ CQTileArea::
 replaceWindowArea(CQTileWindowArea *oldArea, CQTileWindowArea *newArea)
 {
   // reset cells for this window area to zero
-  int ncells = grid_.nrows*grid_.ncols;
-
-  for (int ci = 0; ci < ncells; ++ci) {
-    if (grid_.cells[ci] == oldArea->id())
-      grid_.cells[ci] = newArea->id();
-  }
+  grid_.replace(oldArea->id(), newArea->id());
 
   int pid = getPlacementAreaIndex(oldArea->id());
 
@@ -349,111 +279,15 @@ void
 CQTileArea::
 fillEmptyCells()
 {
-  // refill empty cells
-  // ensure no L shapes
-  for (int r = 0; r < grid_.nrows; ++r) {
-    for (int c = 0; c < grid_.ncols; ++c) {
-      if (grid_.cell(r, c) >= 0) continue;
-
-      // (r, c) is zero to pick a surrounding non-zero cell to use
-      int lCell = (c > 0               ? grid_.cell(r    , c - 1) : -1);
-      int rCell = (c < grid_.ncols - 1 ? grid_.cell(r    , c + 1) : -1);
-      int tCell = (r > 0               ? grid_.cell(r - 1, c    ) : -1);
-      int bCell = (r < grid_.nrows - 1 ? grid_.cell(r + 1, c    ) : -1);
-
-      int tlCell = (c >               0 && r > 0               ? grid_.cell(r - 1, c - 1) : -1);
-      int trCell = (c < grid_.ncols - 1 && r > 0               ? grid_.cell(r - 1, c + 1) : -1);
-      int blCell = (c > 0               && r < grid_.nrows - 1 ? grid_.cell(r + 1, c - 1) : -1);
-      int brCell = (c < grid_.ncols - 1 && r < grid_.nrows - 1 ? grid_.cell(r + 1, c + 1) : -1);
-
-      if      (lCell >= 0 && lCell != blCell && lCell != tlCell) grid_.cell(r, c) = lCell;
-      else if (rCell >= 0 && rCell != brCell && rCell != trCell) grid_.cell(r, c) = rCell;
-      else if (tCell >= 0 && tCell != trCell && tCell != tlCell) grid_.cell(r, c) = tCell;
-      else if (bCell >= 0 && bCell != brCell && bCell != blCell) grid_.cell(r, c) = bCell;
-    }
-  }
+  grid_.fillEmptyCells();
 }
 
 void
 CQTileArea::
 removeDuplicateCells()
 {
-  removeDuplicateRows();
-  removeDuplicateCols();
-}
-
-void
-CQTileArea::
-removeDuplicateRows()
-{
-  std::set<int> rows;
-
-  for (int r = 1; r < grid_.nrows; ++r) {
-    bool match = true;
-
-    for (int c = 0; c < grid_.ncols; ++c) {
-      if (grid_.cell(r - 1, c) != grid_.cell(r, c)) {
-        match = false;
-        break;
-      }
-    }
-
-    if (match)
-      rows.insert(r);
-  }
-
-  if (rows.empty())
-    return;
-
-  Grid grid(grid_.nrows - rows.size(), grid_.ncols);
-
-  for (int r = 0, r1 = 0; r < grid_.nrows; ++r) {
-    if (rows.find(r) != rows.end()) continue;
-
-    for (int c = 0; c < grid_.ncols; ++c)
-      grid.cell(r1, c) = grid_.cell(r, c);
-
-    ++r1;
-  }
-
-  grid_ = grid;
-}
-
-void
-CQTileArea::
-removeDuplicateCols()
-{
-  std::set<int> cols;
-
-  for (int c = 1; c < grid_.ncols; ++c) {
-    bool match = true;
-
-    for (int r = 0; r < grid_.nrows; ++r) {
-      if (grid_.cell(r, c - 1) != grid_.cell(r, c)) {
-        match = false;
-        break;
-      }
-    }
-
-    if (match)
-      cols.insert(c);
-  }
-
-  if (cols.empty())
-    return;
-
-  Grid grid(grid_.nrows, grid_.ncols - cols.size());
-
-  for (int c = 0, c1 = 0; c < grid_.ncols; ++c) {
-    if (cols.find(c) != cols.end()) continue;
-
-    for (int r = 0; r < grid_.nrows; ++r)
-      grid.cell(r, c1) = grid_.cell(r, c);
-
-    ++c1;
-  }
-
-  grid_ = grid;
+  grid_.removeDuplicateRows();
+  grid_.removeDuplicateCols();
 }
 
 void
@@ -464,53 +298,42 @@ gridToPlacement()
 
   placementAreas_.clear();
 
-  Grid grid = grid_;
+  CTileGrid grid = grid_;
 
-  int ncells = grid_.nrows*grid_.ncols;
+  for (int r = 0; r < grid.nrows(); ++r) {
+    for (int c = 0; c < grid.ncols(); ++c) {
+      int id = grid.cell(r, c);
 
-  for (int ci = 0; ci < ncells; ++ci) {
-    if (grid.cells[ci] < 0)
-      continue;
+      if (id < -1)
+        continue;
 
-    int id = grid.cells[ci];
+      // get extent (nrow,ncols) of area with specified id
+      int nr, nc;
 
-    // get extent (nrow,ncols) of area with specified id
-    int r1 = ci / grid_.ncols;
-    int c1 = ci % grid_.ncols;
+      if (! grid.getRegion(id, r, c, &nr, &nc))
+        continue;
 
-    int r2 = r1;
-    int c2 = c1;
+      int r2 = r + nr - 1;
+      int c2 = c + nc - 1;
 
-    while (r2 + 1 < grid_.nrows && grid.cell(r2 + 1, c1) == id)
-      ++r2;
+      // clear cells with this id
+      grid.fill(r, c, r2, c2, -2);
 
-    while (c2 + 1 < grid_.ncols && grid.cell(r1, c2 + 1) == id)
-      ++c2;
+      // get area
+      CQTileWindowArea *area = 0;
 
-    int nr = r2 - r1 + 1;
-    int nc = c2 - c1 + 1;
-
-    // clear cells with this id
-    for (int r = r1; r <= r2; ++r) {
-      for (int c = c1; c <= c2; ++c) {
-        grid.cell(r, c) = -1;
+      if (id > 0) {
+        area = areas_[id];
+        assert(area);
       }
+
+      // create placement area for this area
+      PlacementArea placementArea;
+
+      placementArea.place(r, c, nr, nc, area);
+
+      placementAreas_.push_back(placementArea);
     }
-
-    // get area
-    CQTileWindowArea *area = 0;
-
-    if (id) {
-      area = areas_[id];
-      assert(area);
-    }
-
-    // create placement area for this area
-    PlacementArea placementArea;
-
-    placementArea.place(r1, c1, nr, nc, area);
-
-    placementAreas_.push_back(placementArea);
   }
 
   addSplitters();
@@ -534,10 +357,10 @@ addSplitters()
     int col2 = placementArea.col2();
 
     // add splitter for each edge
-    if (row1 > 0          ) addHSplitter(i, row1, true ); // top
-    if (row2 < grid_.nrows) addHSplitter(i, row2, false); // bottom
-    if (col1 > 0          ) addVSplitter(i, col1, true ); // left
-    if (col2 < grid_.ncols) addVSplitter(i, col2, false); // right
+    if (row1 > 0            ) addHSplitter(i, row1, true ); // top
+    if (row2 < grid_.nrows()) addHSplitter(i, row2, false); // bottom
+    if (col1 > 0            ) addVSplitter(i, col1, true ); // left
+    if (col2 < grid_.ncols()) addVSplitter(i, col2, false); // right
   }
 
   //------
@@ -793,18 +616,18 @@ adjustToFit()
   int ss = CQTileAreaConstants::splitter_size;
 
   // adjust areas to fit width
-  for (int r = 0; r < grid_.nrows; ++r) {
+  for (int r = 0; r < grid_.nrows(); ++r) {
     std::vector<int> pids;
 
     // get list of placement area ids on this row
     int c = 0;
 
-    while (c < grid_.ncols) {
+    while (c < grid_.ncols()) {
       int cell = grid_.cell(r, c);
 
       ++c;
 
-      while (c < grid_.ncols && grid_.cell(r, c) == cell)
+      while (c < grid_.ncols() && grid_.cell(r, c) == cell)
         ++c;
 
       int pid = getPlacementAreaIndex(cell);
@@ -840,11 +663,6 @@ adjustToFit()
       if (! widthSized[pids[i]]) {
         int dw = w1/ns;
 
-        if (CQTileAreaConstants::rand_resize) {
-          if ((w1 % ns) > 0 && rand() > RAND_MAX/2)
-            ++dw;
-        }
-
         --ns;
 
         placementArea.width += dw;
@@ -864,18 +682,18 @@ adjustToFit()
   }
 
   // adjust areas to fit height
-  for (int c = 0; c < grid_.ncols; ++c) {
+  for (int c = 0; c < grid_.ncols(); ++c) {
     std::vector<int> pids;
 
     // get list of placement area ids on this column
     int r = 0;
 
-    while (r < grid_.nrows) {
+    while (r < grid_.nrows()) {
       int cell = grid_.cell(r, c);
 
       ++r;
 
-      while (r < grid_.nrows && grid_.cell(r, c) == cell)
+      while (r < grid_.nrows() && grid_.cell(r, c) == cell)
         ++r;
 
       int pid = getPlacementAreaIndex(cell);
@@ -911,11 +729,6 @@ adjustToFit()
       if (! heightSized[pids[i]]) {
         int dh = h1/ns;
 
-        if (CQTileAreaConstants::rand_resize) {
-          if ((h1 % ns) > 0 && rand() > RAND_MAX/2)
-            ++dh;
-        }
-
         --ns;
 
         placementArea.height += dh;
@@ -931,6 +744,110 @@ adjustToFit()
       y = placementArea.y2() + ss;
 
       updatePlacementGeometry(placementArea);
+    }
+  }
+
+  adjustSplitterSides();
+}
+
+void
+CQTileArea::
+adjustSplitterSides()
+{
+  // ensure placement areas either side of splitter are consistent
+  for (RowHSplitterArray::iterator p = hsplitters_.begin(); p != hsplitters_.end(); ++p) {
+    HSplitterArray &hsplitters = (*p).second;
+
+    int ns = hsplitters.size();
+
+    for (int is = 0; is < ns; ++is) {
+      const HSplitter &splitter = hsplitters[is];
+
+      int y = 0;
+
+      int nt = splitter.tareas.size();
+
+      for (int i = 0; i < nt; ++i) {
+        int area = splitter.tareas[i];
+
+        PlacementArea &placementArea = placementAreas_[area];
+
+        if (i == 0)
+          y = placementArea.y2();
+        else {
+          if (placementArea.y2() != y) {
+            placementArea.height += y - placementArea.y2();
+
+            updatePlacementGeometry(placementArea);
+          }
+        }
+      }
+
+      int nb = splitter.bareas.size();
+
+      for (int i = 0; i < nb; ++i) {
+        int area = splitter.bareas[i];
+
+        PlacementArea &placementArea = placementAreas_[area];
+
+        if (i == 0)
+          y = placementArea.y1();
+        else {
+          if (placementArea.y1() != y) {
+            placementArea.y = y;
+
+            updatePlacementGeometry(placementArea);
+          }
+        }
+      }
+    }
+  }
+
+  for (ColVSplitterArray::iterator p = vsplitters_.begin(); p != vsplitters_.end(); ++p) {
+    VSplitterArray &vsplitters = (*p).second;
+
+    int ns = vsplitters.size();
+
+    for (int is = 0; is < ns; ++is) {
+      const VSplitter &splitter = vsplitters[is];
+
+      int x = 0;
+
+      int nl = splitter.lareas.size();
+
+      for (int i = 0; i < nl; ++i) {
+        int area = splitter.lareas[i];
+
+        PlacementArea &placementArea = placementAreas_[area];
+
+        if (i == 0)
+          x = placementArea.x2();
+        else {
+          if (placementArea.x2() != x) {
+            placementArea.width += x - placementArea.x2();
+
+            updatePlacementGeometry(placementArea);
+          }
+        }
+      }
+
+      int nr = splitter.rareas.size();
+
+      for (int i = 0; i < nr; ++i) {
+        int area = splitter.rareas[i];
+
+        PlacementArea &placementArea = placementAreas_[area];
+
+        if (i == 0)
+          x = placementArea.x1();
+        else {
+          if (placementArea.x1() != x) {
+            placementArea.x = x;
+
+            updatePlacementGeometry(placementArea);
+          }
+        }
+      }
     }
   }
 }
@@ -1074,9 +991,9 @@ getHSplitterRect(const HSplitter &splitter) const
 
   int x1 = INT_MAX, x2 = INT_MIN, yt = INT_MIN, yb = INT_MAX;
 
-  int nl = splitter.tareas.size();
+  int nt = splitter.tareas.size();
 
-  for (int i = 0; i < nl; ++i) {
+  for (int i = 0; i < nt; ++i) {
     int area = splitter.tareas[i];
 
     const PlacementArea &placementArea = placementAreas_[area];
@@ -1860,6 +1777,41 @@ restoreState(const PlacementState &state)
   updatePlacementGeometries();
 }
 
+void
+CQTileArea::
+printSlot()
+{
+  grid_.print(std::cerr);
+}
+
+void
+CQTileArea::
+fillSlot()
+{
+  fillEmptyCells();
+}
+
+void
+CQTileArea::
+dupSlot()
+{
+  removeDuplicateCells();
+}
+
+void
+CQTileArea::
+placeSlot()
+{
+  gridToPlacement();
+}
+
+void
+CQTileArea::
+adjustSlot()
+{
+  adjustToFit();
+}
+
 //-------
 
 int CQTileWindowArea::lastId_;
@@ -2163,6 +2115,32 @@ paintEvent(QPaintEvent *e)
   //p.fillRect(rect(), QBrush(QColor(250,200,200)));
 
   QFrame::paintEvent(e);
+}
+
+QSize
+CQTileWindowArea::
+sizeHint() const
+{
+  int w = stack_->sizeHint().width();
+  int h = title_->height() + stack_->sizeHint().height() + 4;
+
+  if (tabBar_->count() > 1) {
+    w = std::max(w, tabBar_->sizeHint().width());
+
+    h += tabBar_->height() + 4;
+  }
+
+  return QSize(w, h);
+}
+
+QSize
+CQTileWindowArea::
+minimumSizeHint() const
+{
+  int w = title_->minimumSizeHint().width();
+  int h = title_->minimumSizeHint().height() + 4;
+
+  return QSize(w, h);
 }
 
 //-------

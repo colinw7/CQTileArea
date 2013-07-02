@@ -8,10 +8,12 @@ CONFIG += staticlib
 
 # Input
 HEADERS += \
-CQTileArea.h
+CQTileArea.h \
+CTileGrid.h \
 
 SOURCES += \
-CQTileArea.cpp
+CQTileArea.cpp \
+CTileGrid.h \
 
 OBJECTS_DIR = ../obj
 

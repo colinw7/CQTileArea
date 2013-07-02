@@ -1,10 +1,9 @@
 #ifndef CQTileArea_H
 #define CQTileArea_H
 
+#include <CTileGrid.h>
 #include <QFrame>
-#include <QToolButton>
 #include <map>
-#include <iostream>
 
 class QStackedWidget;
 class QTabBar;
@@ -18,6 +17,8 @@ class CQTileWindowTitle;
 // tile is set out in a grid with splitters (resize bars) separating each
 // set of grid cells
 class CQTileArea : public QWidget {
+  Q_OBJECT
+
  private:
   enum Side {
     NO_SIDE,
@@ -89,65 +90,6 @@ class CQTileArea : public QWidget {
     Highlight(int ind1=-1, Side side1=NO_SIDE) : ind(ind1), side(side1) { }
   };
 
-  // grid with rows x cols cells where each cells has an associated area
-  // number to represent which window area is contained in it.
-  // Multiple cells may have same window area to support multiple cell spanning
-  // TODO: add unique x/y values and reconfigure grid to match (i.e. new x/y values
-  // are added removed)
-  // TODO: store real offsets of edges for smooth resize
-  struct Grid {
-    std::vector<int> cells;
-    int              nrows;
-    int              ncols;
-
-    Grid(int nrows1=0, int ncols1=0) :
-     nrows(0), ncols(0) {
-      setSize(nrows1, ncols1);
-    }
-
-    void reset() {
-      nrows = 0;
-      ncols = 0;
-
-      cells.clear();
-    }
-
-    void setSize(int nrows1, int ncols1) {
-      nrows = nrows1;
-      ncols = ncols1;
-
-      cells.resize(nrows*ncols);
-    }
-
-    int &cell(int r, int c) {
-      return cells[r*ncols + c];
-    }
-    int cell(int r, int c) const {
-      return cells[r*ncols + c];
-    }
-
-    void print() {
-      print(std::cout);
-    }
-
-    void replace(int oldId, int newId) {
-      for (int i = 0; i < nrows*ncols; ++i) {
-        if (cells[i] == oldId)
-          cells[i] = newId;
-      }
-    }
-
-    void print(std::ostream &os) {
-      // display new grid
-      for (int r = 0; r < nrows; ++r) {
-        for (int c = 0; c < ncols; ++c) {
-          os << " " << cell(r, c);
-        }
-        os << std::endl;
-      }
-    }
-  };
-
   typedef std::map<int,CQTileWindowArea *> WindowAreas;
   typedef std::vector<PlacementArea>       PlacementAreas;
   typedef std::vector<HSplitter>           HSplitterArray;
@@ -158,7 +100,7 @@ class CQTileArea : public QWidget {
 
   struct PlacementState {
     bool              transient_;
-    Grid              grid_;
+    CTileGrid         grid_;
     PlacementAreas    placementAreas_;
     RowHSplitterArray hsplitters_;
     ColVSplitterArray vsplitters_;
@@ -197,8 +139,6 @@ class CQTileArea : public QWidget {
   void fillEmptyCells();
 
   void removeDuplicateCells();
-  void removeDuplicateRows();
-  void removeDuplicateCols();
 
   void gridToPlacement();
 
@@ -213,6 +153,7 @@ class CQTileArea : public QWidget {
   void addVSplitter(int i, int col, bool left);
 
   void adjustToFit();
+  void adjustSplitterSides();
 
   int getPlacementAreaIndex(int id) const;
 
@@ -254,6 +195,13 @@ class CQTileArea : public QWidget {
   void restoreState();
   void restoreState(const PlacementState &state);
 
+ public slots:
+  void printSlot();
+  void fillSlot();
+  void dupSlot();
+  void placeSlot();
+  void adjustSlot();
+
  private:
   struct MouseState {
     bool        pressed;
@@ -275,7 +223,7 @@ class CQTileArea : public QWidget {
     }
   };
 
-  Grid               grid_;
+  CTileGrid          grid_;
   WindowAreas        areas_;
   PlacementAreas     placementAreas_;
   RowHSplitterArray  hsplitters_;
@@ -330,6 +278,9 @@ class CQTileWindowArea : public QFrame {
   void addWindow(CQTileWindow *window);
 
   void paintEvent(QPaintEvent *);
+
+  QSize sizeHint() const;
+  QSize minimumSizeHint() const;
 
  public slots:
   void minimizeSlot();
