@@ -19,6 +19,8 @@ class CQTileWindowTitle;
 class CQTileArea : public QWidget {
   Q_OBJECT
 
+  Q_PROPERTY(int splitterSize READ splitterSize WRITE setSplitterSize)
+
  private:
   enum Side {
     NO_SIDE,
@@ -108,6 +110,9 @@ class CQTileArea : public QWidget {
 
  public:
   CQTileArea();
+
+  int  splitterSize() const { return splitterSize_; }
+  void setSplitterSize(int size) { splitterSize_ = size; }
 
   CQTileWindow *addWindow(QWidget *w);
   CQTileWindow *addWindow(QWidget *w, int row, int col, int nrows=1, int ncols=1);
@@ -210,6 +215,7 @@ class CQTileArea : public QWidget {
     SplitterInd pressVSplitter;
     SplitterInd mouseHSplitter;
     SplitterInd mouseVSplitter;
+    bool        dragAll;
 
     MouseState() :
      mouseHSplitter(-1,-1), mouseVSplitter(-1,-1) {
@@ -220,6 +226,7 @@ class CQTileArea : public QWidget {
       pressed        = false;
       pressHSplitter = SplitterInd(-1,-1);
       pressVSplitter = SplitterInd(-1,-1);
+      dragAll        = false;
     }
   };
 
@@ -233,6 +240,7 @@ class CQTileArea : public QWidget {
   PlacementState     saveState_;
   bool               maximized_;
   PlacementState     maximizeState_;
+  int                splitterSize_;
   QRubberBand       *rubberBand_;
   CQTileWindowArea  *currentArea_;
 };
@@ -262,7 +270,9 @@ class CQTileWindowArea : public QFrame {
 
   QString getTitle() const;
 
-  void detach(const QPoint &pos);
+  QIcon getIcon() const;
+
+  void detach(const QPoint &pos, bool dragAll);
   void attach(bool preview=false);
   void reattach();
 
@@ -319,7 +329,7 @@ class CQTileWindow : public QWidget {
   QWidget *widget() const { return w_; }
 
  private:
-  QWidget *w_;
+  QWidget *w_; // child widget
 };
 
 //------
@@ -330,6 +340,10 @@ class CQTileWindow : public QWidget {
 class CQTileWindowTitle : public CQTitleBar {
  public:
   CQTileWindowTitle(CQTileWindowArea *area);
+
+  QString title() const;
+
+  QIcon icon() const;
 
   void setMaximized(bool maximized);
 
@@ -350,6 +364,7 @@ class CQTileWindowTitle : public CQTitleBar {
     bool   pressed;
     bool   escapePress;
     QPoint pressPos;
+    bool   dragAll;
 
     MouseState(){
       reset();
@@ -358,15 +373,16 @@ class CQTileWindowTitle : public CQTitleBar {
     void reset() {
       pressed     = false;
       escapePress = false;
+      dragAll     = false;
     }
   };
 
-  CQTileWindowArea *area_;
-  MouseState        mouseState_;
-  CQTitleBarButton *minimizeButton_;
-  CQTitleBarButton *maximizeButton_;
-  CQTitleBarButton *closeButton_;
-  bool              maximized_;
+  CQTileWindowArea *area_;           // parent area
+  MouseState        mouseState_;     // current mouse state
+  CQTitleBarButton *minimizeButton_; // minimize button
+  CQTitleBarButton *maximizeButton_; // maximize button
+  CQTitleBarButton *closeButton_;    // close button
+  bool              maximized_;      // is maximized
 };
 
 #endif

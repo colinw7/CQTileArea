@@ -20,17 +20,18 @@
 
 namespace CQTileAreaConstants {
   bool debug_grid        = true;
-  int  min_size          = 4;
-  int  splitter_size     = 6;
+  int  min_size          = 8;
   bool combine_splitters = true;
-  bool detach_tab        = true;
   bool animated_preview  = true;
+  int  border            = 1;
 }
 
 CQTileArea::
 CQTileArea() :
- maximized_(false), currentArea_(0)
+ maximized_(false), splitterSize_(5), currentArea_(0)
 {
+  setObjectName("tileArea");
+
   setMouseTracking(true);
 
   rubberBand_ = new QRubberBand(QRubberBand::Rectangle);
@@ -420,7 +421,7 @@ addHSplitter(int i, int row, bool top)
 {
   PlacementArea &placementArea = placementAreas_[i];
 
-  int ss = CQTileAreaConstants::splitter_size;
+  int ss = splitterSize();
 
   // adjust size for splitter
   if (top) { placementArea.y      += ss/2; placementArea.height -= ss/2; }
@@ -479,7 +480,7 @@ addVSplitter(int i, int col, bool left)
 {
   PlacementArea &placementArea = placementAreas_[i];
 
-  int ss = CQTileAreaConstants::splitter_size;
+  int ss = splitterSize();
 
   // adjust size for splitter
   if (left) { placementArea.x     += ss/2; placementArea.width -= ss/2; }
@@ -594,28 +595,20 @@ void
 CQTileArea::
 adjustToFit()
 {
-  std::vector<bool> widthSized;
-  std::vector<bool> heightSized;
-
   int np = placementAreas_.size();
 
-  widthSized .resize(np);
-  heightSized.resize(np);
+  std::vector<bool> sized(np);
 
-  for (int i = 0; i < np; ++i) {
-    widthSized [i] = false;
-    heightSized[i] = false;
-  }
+  int b  = CQTileAreaConstants::border;
+  int ss = splitterSize();
 
   //------
 
-  int b = 2;
-  int w = width () - 2*b;
-  int h = height() - 2*b;
-
-  int ss = CQTileAreaConstants::splitter_size;
-
   // adjust areas to fit width
+  int w = width();
+
+  std::fill(sized.begin(), sized.end(), false);
+
   for (int r = 0; r < grid_.nrows(); ++r) {
     std::vector<int> pids;
 
@@ -636,52 +629,84 @@ adjustToFit()
         pids.push_back(pid);
     }
 
-    // calc remaining space on row (width - placement area widths)
-    int w1 = w;
-    int ns = 0;
+    // resize placement areas on row
+    int x1 = b;
 
-    for (uint i = 0; i < pids.size(); ++i) {
-      PlacementArea &placementArea = placementAreas_[pids[i]];
+    uint i2 = 0;
 
-      w1 -= placementArea.width;
+    while (i2 < pids.size()) {
+      // get range to next sized width column
+      uint i1 = i2;
 
-      // only resize those not already sized
-      if (! widthSized[pids[i]])
-        ++ns;
-    }
+      while (i2 < pids.size() && ! sized[pids[i2]])
+        ++i2;
 
-    // account for spacers
-    w1 -= (pids.size() - 1)*ss;
+      int ns = i2 - i1;
 
-    // resize placement areas
-    int x = b;
+      //---
 
-    for (uint i = 0; i < pids.size(); ++i) {
-      PlacementArea &placementArea = placementAreas_[pids[i]];
+      // calc start and end of range and width to fill
+      int x2;
 
-      // adjust width (if not done already)
-      if (! widthSized[pids[i]]) {
+      if (i2 < pids.size())
+        x2 = placementAreas_[pids[i2]].x1() - ss;
+      else
+        x2 = w - b;
+
+      int w1 = x2 - x1 - (ns - 1)*ss;
+
+      for (uint i = i1; i < i2; ++i) {
+        PlacementArea &placementArea = placementAreas_[pids[i]];
+
+        w1 -= placementArea.width;
+      }
+
+      //---
+
+      // share fill between columns
+      for (uint i = i1; i < i2; ++i) {
+        PlacementArea &placementArea = placementAreas_[pids[i]];
+
+        // adjust width
         int dw = w1/ns;
 
-        --ns;
-
+        placementArea.x      = x1;
         placementArea.width += dw;
+
+        updatePlacementGeometry(placementArea);
+
+        sized[pids[i]] = true;
 
         w1 -= dw;
 
-        widthSized[pids[i]] = true;
+        --ns;
+
+        x1 = placementArea.x2() + ss;
       }
 
-      // place at x and update x
-      placementArea.x = x;
+      //---
 
-      x = placementArea.x2() + ss;
+      // move to next non sized column
+      i1 = i2++;
 
-      updatePlacementGeometry(placementArea);
+      while (i2 < pids.size() && sized[pids[i2]])
+        ++i2;
+
+      if (i2 < pids.size()) {
+        PlacementArea &placementArea = placementAreas_[pids[i2 - 1]];
+
+        x1 = placementArea.x2() + ss;
+      }
     }
   }
 
+  //------
+
   // adjust areas to fit height
+  int h = height();
+
+  std::fill(sized.begin(), sized.end(), false);
+
   for (int c = 0; c < grid_.ncols(); ++c) {
     std::vector<int> pids;
 
@@ -702,151 +727,73 @@ adjustToFit()
         pids.push_back(pid);
     }
 
-    // calc remaining space on column (width - placement area widths)
-    int h1 = h;
-    int ns = 0;
+    // resize placement areas on colum
+    int y1 = b;
 
-    for (uint i = 0; i < pids.size(); ++i) {
-      PlacementArea &placementArea = placementAreas_[pids[i]];
+    uint i2 = 0;
 
-      h1 -= placementArea.height;
+    while (i2 < pids.size()) {
+      // get range to next sized width row
+      uint i1 = i2;
 
-      // only resize those not already sized
-      if (! heightSized[pids[i]])
-        ++ns;
-    }
+      while (i2 < pids.size() && ! sized[pids[i2]])
+        ++i2;
 
-    // account for spacers
-    h1 -= (pids.size() - 1)*ss;
+      int ns = i2 - i1;
 
-    // resize placement areas
-    int y = b;
+      //---
 
-    for (uint i = 0; i < pids.size(); ++i) {
-      PlacementArea &placementArea = placementAreas_[pids[i]];
+      // calc start and end of range and height to fill
+      int y2;
 
-      // adjust height (if not done already)
-      if (! heightSized[pids[i]]) {
+      if (i2 < pids.size())
+        y2 = placementAreas_[pids[i2]].y1() - ss;
+      else
+        y2 = h - b;
+
+      int h1 = y2 - y1 - (ns - 1)*ss;
+
+      for (uint i = i1; i < i2; ++i) {
+        PlacementArea &placementArea = placementAreas_[pids[i]];
+
+        h1 -= placementArea.height;
+      }
+
+      //---
+
+      // share fill between rows
+      for (uint i = i1; i < i2; ++i) {
+        PlacementArea &placementArea = placementAreas_[pids[i]];
+
+        // adjust height
         int dh = h1/ns;
 
-        --ns;
-
+        placementArea.y       = y1;
         placementArea.height += dh;
+
+        updatePlacementGeometry(placementArea);
+
+        sized[pids[i]] = true;
 
         h1 -= dh;
 
-        heightSized[pids[i]] = true;
+        --ns;
+
+        y1 = placementArea.y2() + ss;
       }
 
-      // place at y and update y
-      placementArea.y = y;
+      //---
 
-      y = placementArea.y2() + ss;
+      // move to next non sized row
+      i1 = i2++;
 
-      updatePlacementGeometry(placementArea);
-    }
-  }
+      while (i2 < pids.size() && sized[pids[i2]])
+        ++i2;
 
-  adjustSplitterSides();
-}
+      if (i2 < pids.size()) {
+        PlacementArea &placementArea = placementAreas_[pids[i2 - 1]];
 
-void
-CQTileArea::
-adjustSplitterSides()
-{
-  // ensure placement areas either side of splitter are consistent
-  for (RowHSplitterArray::iterator p = hsplitters_.begin(); p != hsplitters_.end(); ++p) {
-    HSplitterArray &hsplitters = (*p).second;
-
-    int ns = hsplitters.size();
-
-    for (int is = 0; is < ns; ++is) {
-      const HSplitter &splitter = hsplitters[is];
-
-      int y = 0;
-
-      int nt = splitter.tareas.size();
-
-      for (int i = 0; i < nt; ++i) {
-        int area = splitter.tareas[i];
-
-        PlacementArea &placementArea = placementAreas_[area];
-
-        if (i == 0)
-          y = placementArea.y2();
-        else {
-          if (placementArea.y2() != y) {
-            placementArea.height += y - placementArea.y2();
-
-            updatePlacementGeometry(placementArea);
-          }
-        }
-      }
-
-      int nb = splitter.bareas.size();
-
-      for (int i = 0; i < nb; ++i) {
-        int area = splitter.bareas[i];
-
-        PlacementArea &placementArea = placementAreas_[area];
-
-        if (i == 0)
-          y = placementArea.y1();
-        else {
-          if (placementArea.y1() != y) {
-            placementArea.y = y;
-
-            updatePlacementGeometry(placementArea);
-          }
-        }
-      }
-    }
-  }
-
-  for (ColVSplitterArray::iterator p = vsplitters_.begin(); p != vsplitters_.end(); ++p) {
-    VSplitterArray &vsplitters = (*p).second;
-
-    int ns = vsplitters.size();
-
-    for (int is = 0; is < ns; ++is) {
-      const VSplitter &splitter = vsplitters[is];
-
-      int x = 0;
-
-      int nl = splitter.lareas.size();
-
-      for (int i = 0; i < nl; ++i) {
-        int area = splitter.lareas[i];
-
-        PlacementArea &placementArea = placementAreas_[area];
-
-        if (i == 0)
-          x = placementArea.x2();
-        else {
-          if (placementArea.x2() != x) {
-            placementArea.width += x - placementArea.x2();
-
-            updatePlacementGeometry(placementArea);
-          }
-        }
-      }
-
-      int nr = splitter.rareas.size();
-
-      for (int i = 0; i < nr; ++i) {
-        int area = splitter.rareas[i];
-
-        PlacementArea &placementArea = placementAreas_[area];
-
-        if (i == 0)
-          x = placementArea.x1();
-        else {
-          if (placementArea.x1() != x) {
-            placementArea.x = x;
-
-            updatePlacementGeometry(placementArea);
-          }
-        }
+        y1 = placementArea.y2() + ss;
       }
     }
   }
@@ -987,7 +934,7 @@ QRect
 CQTileArea::
 getHSplitterRect(const HSplitter &splitter) const
 {
-  int ss = CQTileAreaConstants::splitter_size;
+  int ss = splitterSize();
 
   int x1 = INT_MAX, x2 = INT_MIN, yt = INT_MIN, yb = INT_MAX;
 
@@ -1027,7 +974,7 @@ QRect
 CQTileArea::
 getVSplitterRect(const VSplitter &splitter) const
 {
-  int ss = CQTileAreaConstants::splitter_size;
+  int ss = splitterSize();
 
   int y1 = INT_MAX, y2 = INT_MIN, xl = INT_MIN, xr = INT_MAX;
 
@@ -1295,7 +1242,7 @@ updateRubberBand()
 
   if (! CQTileAreaConstants::animated_preview) {
     if (highlight_.side != NO_SIDE) {
-      int ss = CQTileAreaConstants::splitter_size;
+      int ss = splitterSize();
 
       QRect rect;
 
@@ -1353,9 +1300,9 @@ CQTileArea::
 mousePressEvent(QMouseEvent *e)
 {
   mouseState_.pressed        = true;
+  mouseState_.pressPos       = e->globalPos();
   mouseState_.pressHSplitter = getHSplitterAtPos(e->pos());
   mouseState_.pressVSplitter = getVSplitterAtPos(e->pos());
-  mouseState_.pressPos       = e->globalPos();
 
   update();
 }
@@ -1368,6 +1315,7 @@ mouseMoveEvent(QMouseEvent *e)
     int dx = e->globalPos().x() - mouseState_.pressPos.x();
     int dy = e->globalPos().y() - mouseState_.pressPos.y();
 
+    // move horizontal splitter
     if (dy && mouseState_.pressHSplitter.first >= 0) {
       HSplitter &splitter =
         hsplitters_[mouseState_.pressHSplitter.first][mouseState_.pressHSplitter.second];
@@ -1381,8 +1329,11 @@ mouseMoveEvent(QMouseEvent *e)
 
         PlacementArea &placementArea = placementAreas_[area];
 
-        if (dy < 0 && placementArea.height + dy <= CQTileAreaConstants::min_size)
-          dy = CQTileAreaConstants::min_size - placementArea.height;
+        int min_size = (placementArea.area ?
+          placementArea.area->minimumSizeHint().height() : CQTileAreaConstants::min_size);
+
+        if (dy < 0 && placementArea.height + dy <= min_size)
+          dy = min_size - placementArea.height;
       }
 
       for (int i = 0; i < nb; ++i) {
@@ -1390,8 +1341,11 @@ mouseMoveEvent(QMouseEvent *e)
 
         PlacementArea &placementArea = placementAreas_[area];
 
-        if (dy > 0 && placementArea.height - dy <= CQTileAreaConstants::min_size)
-          dy = placementArea.height - CQTileAreaConstants::min_size;
+        int min_size = (placementArea.area ?
+          placementArea.area->minimumSizeHint().height() : CQTileAreaConstants::min_size);
+
+        if (dy > 0 && placementArea.height - dy <= min_size)
+          dy = placementArea.height - min_size;
       }
 
       // apply dy to placement areas
@@ -1417,6 +1371,7 @@ mouseMoveEvent(QMouseEvent *e)
       }
     }
 
+    // move vertical splitter
     if (dx && mouseState_.pressVSplitter.first >= 0) {
       VSplitter &splitter =
         vsplitters_[mouseState_.pressVSplitter.first][mouseState_.pressVSplitter.second];
@@ -1430,8 +1385,11 @@ mouseMoveEvent(QMouseEvent *e)
 
         PlacementArea &placementArea = placementAreas_[area];
 
-        if (dx < 0 && placementArea.width + dx <= CQTileAreaConstants::min_size)
-          dx = CQTileAreaConstants::min_size - placementArea.width;
+        int min_size = (placementArea.area ?
+          placementArea.area->minimumSizeHint().width() : CQTileAreaConstants::min_size);
+
+        if (dx < 0 && placementArea.width + dx <= min_size)
+          dx = min_size - placementArea.width;
       }
 
       for (int i = 0; i < nr; ++i) {
@@ -1439,8 +1397,11 @@ mouseMoveEvent(QMouseEvent *e)
 
         PlacementArea &placementArea = placementAreas_[area];
 
-        if (dx > 0 && placementArea.width - dx <= CQTileAreaConstants::min_size)
-          dx = placementArea.width - CQTileAreaConstants::min_size;
+        int min_size = (placementArea.area ?
+          placementArea.area->minimumSizeHint().width() : CQTileAreaConstants::min_size);
+
+        if (dx > 0 && placementArea.width - dx <= min_size)
+          dx = placementArea.width - min_size;
       }
 
       // apply dx to placement areas
@@ -1471,6 +1432,7 @@ mouseMoveEvent(QMouseEvent *e)
     update();
   }
   else {
+    // check for mouse over h/v splitter
     SplitterInd mouseHSplitter = getHSplitterAtPos(e->pos());
     SplitterInd mouseVSplitter = getVSplitterAtPos(e->pos());
 
@@ -1820,6 +1782,8 @@ CQTileWindowArea::
 CQTileWindowArea(CQTileArea *area) :
  area_(area), detached_(false), floating_(false), maximized_(false)
 {
+  setObjectName("area");
+
   setCursor(Qt::ArrowCursor);
 
   id_ = ++lastId_;
@@ -1833,6 +1797,9 @@ CQTileWindowArea(CQTileArea *area) :
   title_  = new CQTileWindowTitle(this);
   stack_  = new QStackedWidget;
   tabBar_ = new QTabBar;
+
+  stack_ ->setObjectName("stack");
+  tabBar_->setObjectName("tabbar");
 
   tabBar_->setMovable(true);
 
@@ -1880,9 +1847,18 @@ getTitle() const
   return (window ? window->widget()->windowTitle() : "");
 }
 
+QIcon
+CQTileWindowArea::
+getIcon() const
+{
+  CQTileWindow *window = currentWindow();
+
+  return (window ? window->widget()->windowIcon() : QIcon());
+}
+
 void
 CQTileWindowArea::
-detach(const QPoint &pos)
+detach(const QPoint &pos, bool dragAll)
 {
   // remove window area from grid and display as floating window
   assert(! detached_ && ! floating_);
@@ -1897,7 +1873,7 @@ detach(const QPoint &pos)
   QPoint lpos = mapFromGlobal(pos);
 
   // remove window from window area
-  if (CQTileAreaConstants::detach_tab && tabBar_->count() > 1) {
+  if (! dragAll && tabBar_->count() > 1) {
     // create new window area for non-current tabs
     CQTileWindowArea *windowArea = area_->addArea();
 
@@ -2160,6 +2136,20 @@ CQTileWindowTitle(CQTileWindowArea *area) :
   setAttribute(Qt::WA_Hover);
 }
 
+QString
+CQTileWindowTitle::
+title() const
+{
+  return area_->getTitle();
+}
+
+QIcon
+CQTileWindowTitle::
+icon() const
+{
+  return area_->getIcon();
+}
+
 void
 CQTileWindowTitle::
 setMaximized(bool maximized)
@@ -2193,6 +2183,7 @@ mousePressEvent(QMouseEvent *e)
 {
   mouseState_.pressed  = true;
   mouseState_.pressPos = e->globalPos();
+  mouseState_.dragAll  = (e->modifiers() & Qt::ShiftModifier);
 
   if (CQTileAreaConstants::animated_preview)
     area_->area()->saveState();
@@ -2207,7 +2198,7 @@ mouseMoveEvent(QMouseEvent *e)
   if (! mouseState_.pressed || mouseState_.escapePress) return;
 
   if (! area_->isDetached() && ! area_->isFloating()) {
-    area_->detach(e->globalPos());
+    area_->detach(e->globalPos(), mouseState_.dragAll);
 
     if (CQTileAreaConstants::animated_preview)
       area_->area()->saveState();
@@ -2302,6 +2293,8 @@ CQTileWindow::
 CQTileWindow() :
  w_(0)
 {
+  setObjectName("window");
+
   QVBoxLayout *layout = new QVBoxLayout(this);
   layout->setMargin(0); layout->setSpacing(0);
 }

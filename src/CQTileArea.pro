@@ -8,15 +8,15 @@ CONFIG += staticlib
 
 # Input
 HEADERS += \
-CQTileArea.h \
-CTileGrid.h \
+../include/CQTileArea.h \
+../include/CTileGrid.h \
 
 SOURCES += \
 CQTileArea.cpp \
-CTileGrid.h \
+CTileGrid.cpp \
 
 OBJECTS_DIR = ../obj
 
 DESTDIR = ../lib
 
-INCLUDEPATH += . ../../CQTitleBar/src
+INCLUDEPATH += . ../include ../../CQTitleBar/src
