@@ -1,6 +1,7 @@
 #include <CTileGrid.h>
 #include <set>
 
+// add new rows after specified row
 void
 CTileGrid::
 insertRows(int row, int nrows)
@@ -37,6 +38,7 @@ insertRows(int row, int nrows)
   }
 }
 
+// add new columns after specified column
 void
 CTileGrid::
 insertColumns(int col, int ncols)
@@ -73,6 +75,7 @@ insertColumns(int col, int ncols)
   }
 }
 
+// expand occupied cells to fill empty ones
 bool
 CTileGrid::
 fillEmptyCells()
@@ -112,16 +115,16 @@ fillEmptyCells()
 
     // fill based on major direction
     if (nr > nc) {
-      if (r  > 0          && fillTop   (r  - 1, c, c2)) { print(std::cerr); continue; }
-      if (r2 < nrows_ - 1 && fillBottom(r2 + 1, c, c2)) { print(std::cerr); continue; }
-      if (c  > 0          && fillLeft  (c  - 1, r, r2)) { print(std::cerr); continue; }
-      if (c2 < ncols_ - 1 && fillRight (c2 + 1, r, r2)) { print(std::cerr); continue; }
+      if (r  > 0          && fillTop   (r  - 1, c, c2)) { /* print(std::cerr); */ continue; }
+      if (r2 < nrows_ - 1 && fillBottom(r2 + 1, c, c2)) { /* print(std::cerr); */ continue; }
+      if (c  > 0          && fillLeft  (c  - 1, r, r2)) { /* print(std::cerr); */ continue; }
+      if (c2 < ncols_ - 1 && fillRight (c2 + 1, r, r2)) { /* print(std::cerr); */ continue; }
     }
     else {
-      if (c  > 0          && fillLeft  (c  - 1, r, r2)) { print(std::cerr); continue; }
-      if (c2 < ncols_ - 1 && fillRight (c2 + 1, r, r2)) { print(std::cerr); continue; }
-      if (r  > 0          && fillTop   (r  - 1, c, c2)) { print(std::cerr); continue; }
-      if (r2 < nrows_ - 1 && fillBottom(r2 + 1, c, c2)) { print(std::cerr); continue; }
+      if (c  > 0          && fillLeft  (c  - 1, r, r2)) { /* print(std::cerr); */ continue; }
+      if (c2 < ncols_ - 1 && fillRight (c2 + 1, r, r2)) { /* print(std::cerr); */ continue; }
+      if (r  > 0          && fillTop   (r  - 1, c, c2)) { /* print(std::cerr); */ continue; }
+      if (r2 < nrows_ - 1 && fillBottom(r2 + 1, c, c2)) { /* print(std::cerr); */ continue; }
     }
 
     // no change so fail
@@ -138,6 +141,7 @@ fillEmptyCells()
   return failed;
 }
 
+// fill columns to left of column and row range
 bool
 CTileGrid::
 fillLeft(int c, int r1, int r2)
@@ -151,6 +155,7 @@ fillLeft(int c, int r1, int r2)
   return true;
 }
 
+// fill columns to right of column and row range
 bool
 CTileGrid::
 fillRight(int c, int r1, int r2)
@@ -164,6 +169,7 @@ fillRight(int c, int r1, int r2)
   return true;
 }
 
+// fill columns above row and column range
 bool
 CTileGrid::
 fillTop(int r, int c1, int c2)
@@ -177,6 +183,7 @@ fillTop(int r, int c1, int c2)
   return true;
 }
 
+// fill columns below row and column range
 bool
 CTileGrid::
 fillBottom(int r, int c1, int c2)
@@ -190,19 +197,7 @@ fillBottom(int r, int c1, int c2)
   return true;
 }
 
-bool
-CTileGrid::
-testFillEmpty(int r, int c, int id)
-{
-  cell(r, c) = id;
-
-  bool rc = isValid();
-
-  cell(r, c) = -1;
-
-  return rc;
-}
-
+// remove duplicate rows
 void
 CTileGrid::
 removeDuplicateRows()
@@ -240,6 +235,7 @@ removeDuplicateRows()
   *this = grid;
 }
 
+// remove duplicate columns
 void
 CTileGrid::
 removeDuplicateCols()
@@ -313,6 +309,7 @@ isValid() const
   return true;
 }
 
+// get region for spcified id
 bool
 CTileGrid::
 getRegion(int id, int r1, int c1, int *nr, int *nc)

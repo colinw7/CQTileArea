@@ -19,4 +19,4 @@ OBJECTS_DIR = ../obj
 
 DESTDIR = ../lib
 
-INCLUDEPATH += . ../include ../../CQTitleBar/src
+INCLUDEPATH += . ../include ../../CQTitleBar/include

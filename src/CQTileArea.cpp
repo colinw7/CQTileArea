@@ -1,42 +1,83 @@
 #include <CQTileArea.h>
 #include <QVBoxLayout>
-#include <QStackedWidget>
-#include <QTabBar>
 #include <QStylePainter>
 #include <QStyleOption>
 #include <QMouseEvent>
 #include <QKeyEvent>
+#include <QApplication>
 #include <QRubberBand>
+#include <QDesktopWidget>
+#include <QMenu>
+#include <QTimer>
 
+#include <cassert>
 #include <set>
 #include <iostream>
-#include <cassert>
 #include <cmath>
 
-#include <images/close.xpm>
+#include <images/detach.xpm>
+#include <images/attach.xpm>
 #include <images/maximize.xpm>
-#include <images/minimize.xpm>
 #include <images/restore.xpm>
+#include <images/close.xpm>
+
+#if 0
+std::string sideStr(CQTileArea::Side side) {
+  switch (side) {
+    case CQTileArea::LEFT_SIDE  : return "left";
+    case CQTileArea::RIGHT_SIDE : return "right";
+    case CQTileArea::TOP_SIDE   : return "top";
+    case CQTileArea::BOTTOM_SIDE: return "bottom";
+    case CQTileArea::MIDDLE_SIDE: return "middle";
+    case CQTileArea::NO_SIDE    : return "none";
+    default                     : return "??";
+  }
+}
+#endif
 
 namespace CQTileAreaConstants {
-  bool debug_grid        = true;
-  int  min_size          = 8;
-  bool combine_splitters = true;
-  bool animated_preview  = true;
-  int  border            = 1;
+  bool   debug_grid      = true;
+  int    min_size        = 8;
+  int    highlight_size  = 16;
+  int    attach_timeout  = 10;
+  QColor bar_active_fg   = QColor(140,140,140);
+  QColor bar_inactive_fg = QColor(120,120,120);
+  int    border          = 2;
 }
 
 CQTileArea::
 CQTileArea() :
- maximized_(false), splitterSize_(5), currentArea_(0)
+ animateDrag_(true), splitterSize_(5), currentArea_(0), defWidth_(-1), defHeight_(-1)
 {
   setObjectName("tileArea");
 
+  // title bar active/inactive colors
+  titleActiveColor_   = QColor(190,190,190);
+  titleInactiveColor_ = QColor(160,160,160);
+
+  // track mouse move for splitters (TODO: widgets)
   setMouseTracking(true);
 
+  // create global rubber band for highlight
   rubberBand_ = new QRubberBand(QRubberBand::Rectangle);
 
   rubberBand_->hide();
+}
+
+// set title bar active color
+void
+CQTileArea::
+setTitleActiveColor(const QColor &color)
+{
+  titleActiveColor_ = color;
+}
+
+// set title bar inactive color
+void
+CQTileArea::
+setTitleInactiveColor(const QColor &color)
+{
+  titleInactiveColor_ = color;
 }
 
 // add window as a new column in the grid
@@ -44,12 +85,9 @@ CQTileWindow *
 CQTileArea::
 addWindow(QWidget *w)
 {
-  // new grid postion is next column with a height of all rows
-  // (ensure at least one row if table empty)
-  int row   = 0;
-  int col   = grid_.ncols();
-  int nrows = std::max(grid_.nrows(), 1);
-  int ncols = 1;
+  int row, col, nrows, ncols;
+
+  calcBestWindowArea(row, col, nrows, ncols);
 
   return addWindow(w, row, col, nrows, ncols);
 }
@@ -67,8 +105,6 @@ addWindow(QWidget *w, int row, int col, int nrows, int ncols)
   // add widget to window area
   CQTileWindow *window = windowArea->addWidget(w);
 
-  //------
-
   addWindowArea(windowArea, row, col, nrows, ncols);
 
   //------
@@ -76,6 +112,7 @@ addWindow(QWidget *w, int row, int col, int nrows, int ncols)
   return window;
 }
 
+// add new window area
 CQTileWindowArea *
 CQTileArea::
 addArea()
@@ -89,6 +126,7 @@ addArea()
   return windowArea;
 }
 
+// add new window area at specified location and size
 void
 CQTileArea::
 addWindowArea(CQTileWindowArea *windowArea, int row, int col, int nrows, int ncols)
@@ -187,30 +225,22 @@ addWindowArea(CQTileWindowArea *windowArea, int row, int col, int nrows, int nco
 
   //------
 
-  if (isVisible()) {
-    // remove empty cells and cleanup duplicate rows and columns
-    fillEmptyCells();
-
-    removeDuplicateCells();
-
-    //------
-
-    // update placement
-    gridToPlacement();
-
-    adjustToFit();
-  }
-
-  if (CQTileAreaConstants::debug_grid)
-    grid_.print(std::cerr);
+  if (isVisible())
+    updatePlacement();
 }
 
+// remove window area
 void
 CQTileArea::
 removeArea(CQTileWindowArea *area)
 {
+  // remove area
   areas_.erase(area->id());
 
+  // remove from grid
+  grid_.replace(area->id(), -1);
+
+  // remove from placement
   int np = placementAreas_.size();
 
   for (int i = 0; i < np; ++i) {
@@ -219,8 +249,120 @@ removeArea(CQTileWindowArea *area)
     if (placementArea.area == area)
       placementArea.area = 0;
   }
+
+  // if current area then set new current
+  if (currentArea_ == area) {
+    if (! areas_.empty())
+      setCurrentArea((*areas_.begin()).second);
+    else
+      setCurrentArea(0);
+  }
 }
 
+// remove window
+void
+CQTileArea::
+removeWindow(CQTileWindow *window)
+{
+  // get area
+  CQTileWindowArea *area = getWindowArea(window);
+  if (! area) return;
+
+  // remove window from area and check if area now empty (if so delete it)
+  bool empty = area->removeWindow(window);
+
+  if (empty) {
+    removeArea(area);
+
+    area->deleteLater();
+  }
+
+  // reparent child widget so it is not deleted with the window
+  if (window->isValid()) {
+    QWidget *w = window->widget();
+
+    w->setParent(this);
+    w->hide();
+  }
+
+  if (isVisible())
+    updatePlacement();
+
+  // notify close
+  emit windowClosed(window);
+
+  // delete window
+  window->deleteLater();
+}
+
+void
+CQTileArea::
+calcBestWindowArea(int &row, int &col, int &nrows, int &ncols)
+{
+  // if bottom right cell spans multiple rows or columns the steal rows/columns
+  bool steal = false;
+
+  if (grid_.ncols() > 1 && grid_.nrows() > 1) {
+    if      (grid_.cell(grid_.nrows() - 1, grid_.ncols() - 1) ==
+             grid_.cell(grid_.nrows() - 1, grid_.ncols() - 2)) {
+      steal = true;
+
+      row   = grid_.nrows() - 1;
+      col   = grid_.ncols() - 1;
+      nrows = 1;
+      ncols = 1;
+
+      while (col > 1 && grid_.cell(grid_.nrows() - 1, col - 1) ==
+                        grid_.cell(grid_.nrows() - 1, col - 2)) {
+        --col; ++ncols;
+      }
+
+      for (int i = 0; i < ncols; ++i)
+        grid_.cell(row, col + i) = -1;
+    }
+    else if (grid_.cell(grid_.nrows() - 1, grid_.ncols() - 1) ==
+             grid_.cell(grid_.nrows() - 2, grid_.ncols() - 1)) {
+      steal = true;
+
+      row   = grid_.nrows() - 1;
+      col   = grid_.ncols() - 1;
+      nrows = 1;
+      ncols = 1;
+
+      while (row > 1 && grid_.cell(row - 1, grid_.ncols() - 1) ==
+                        grid_.cell(row - 2, grid_.ncols() - 1)) {
+        --row; ++nrows;
+      }
+
+      for (int i = 0; i < nrows; ++i)
+        grid_.cell(row + i, col) = -1;
+    }
+  }
+
+  //------
+
+  // fill based on the smallest number of rows or columns, preference to new columns
+  if (! steal) {
+    // Smallest Columns: new grid postion is next column with a height of all rows
+    // (ensure at least one row if table empty)
+    if (grid_.ncols() <= grid_.nrows()) {
+      row   = 0;
+      col   = grid_.ncols();
+      nrows = std::max(grid_.nrows(), 1);
+      ncols = 1;
+    }
+    // Smallest Rows: new grid postion is next row with a width of all columns
+    // (ensure at least one column if table empty)
+    else {
+      row   = grid_.nrows();
+      col   = 0;
+      nrows = 1;
+      ncols = std::max(grid_.ncols(), 1);
+    }
+  }
+}
+
+// add new rows after the specified row
 void
 CQTileArea::
 insertRows(int row, int nrows)
@@ -228,6 +370,7 @@ insertRows(int row, int nrows)
   grid_.insertRows(row, nrows);
 }
 
+// add new columns after specified column
 void
 CQTileArea::
 insertColumns(int col, int ncols)
@@ -235,31 +378,20 @@ insertColumns(int col, int ncols)
   grid_.insertColumns(col, ncols);
 }
 
+// detach window from placement
 void
 CQTileArea::
-removeWindowArea(CQTileWindowArea *window)
+detachWindowArea(CQTileWindowArea *window)
 {
   // reset cells for this window area to zero
   grid_.replace(window->id(), -1);
 
-  if (isVisible()) {
-    // remove empty cells and cleanup duplicate rows and columns
-    fillEmptyCells();
-
-    removeDuplicateCells();
-
-    //------
-
-    // update placement
-    gridToPlacement();
-
-    adjustToFit();
-  }
-
-  if (CQTileAreaConstants::debug_grid)
-    grid_.print(std::cerr);
+  // update placement
+  if (isVisible())
+    updatePlacement();
 }
 
+// replace window area with new window area
 void
 CQTileArea::
 replaceWindowArea(CQTileWindowArea *oldArea, CQTileWindowArea *newArea)
@@ -278,11 +410,54 @@ replaceWindowArea(CQTileWindowArea *oldArea, CQTileWindowArea *newArea)
 
 void
 CQTileArea::
+setGrid(int nrows, int ncols, const std::vector<int> &cells)
+{
+  grid_.setSize(nrows, ncols);
+
+  for (int i = 0; i < nrows*ncols; ++i) {
+    int r = i / ncols;
+    int c = i % ncols;
+
+    grid_.cell(r, c) = cells[i];
+  }
+
+  updatePlacement();
+}
+
+// update physical placement from logical cell placement
+void
+CQTileArea::
+updatePlacement()
+{
+  // remove empty cells and cleanup duplicate rows and columns
+  fillEmptyCells();
+
+  removeDuplicateCells();
+
+  //------
+
+  // update placement
+  gridToPlacement();
+
+  adjustToFit();
+
+  updateTitles();
+
+  //------
+
+  if (CQTileAreaConstants::debug_grid)
+    grid_.print(std::cerr);
+}
+
+// expand occupied cells to fill empty ones
+void
+CQTileArea::
 fillEmptyCells()
 {
   grid_.fillEmptyCells();
 }
 
+// remove duplicate rows and columns to compress grid
 void
 CQTileArea::
 removeDuplicateCells()
@@ -291,11 +466,12 @@ removeDuplicateCells()
   grid_.removeDuplicateCols();
 }
 
+// convert logical grid to physical placement (including splitters)
 void
 CQTileArea::
 gridToPlacement()
 {
-  // TODO: use existing placement to drive new placement ????
+  PlacementAreas placementAreas = placementAreas_;
 
   placementAreas_.clear();
 
@@ -324,14 +500,35 @@ gridToPlacement()
       CQTileWindowArea *area = 0;
 
       if (id > 0) {
-        area = areas_[id];
-        assert(area);
+        WindowAreas::const_iterator p = areas_.find(id);
+
+        if (p != areas_.end())
+          area = (*p).second;
+        else {
+          std::cerr << "Invalid Area Id " << id << std::endl;
+          // assert(false);
+          continue;
+        }
       }
 
       // create placement area for this area
       PlacementArea placementArea;
 
       placementArea.place(r, c, nr, nc, area);
+
+      // use original size if possible
+      int pid = getPlacementAreaIndex(placementAreas, id);
+
+      if (pid >= 0) {
+        PlacementArea &placementArea1 = placementAreas[pid];
+
+        placementArea.width  = placementArea1.width;
+        placementArea.height = placementArea1.height;
+      }
+      else {
+        if (defWidth_  > 0) placementArea.width  = defWidth_;
+        if (defHeight_ > 0) placementArea.height = defHeight_;
+      }
 
       placementAreas_.push_back(placementArea);
     }
@@ -340,6 +537,7 @@ gridToPlacement()
   addSplitters();
 }
 
+// add splitters between placement areas
 void
 CQTileArea::
 addSplitters()
@@ -366,6 +564,10 @@ addSplitters()
 
   //------
 
+  combineTouchingSplitters();
+
+  //------
+
   // ensure no intersect of horizontal splitters with vertical ones
   for (RowHSplitterArray::iterator p = hsplitters_.begin(); p != hsplitters_.end(); ++p) {
     int row = (*p).first;
@@ -388,6 +590,93 @@ addSplitters()
 
 void
 CQTileArea::
+combineTouchingSplitters()
+{
+  // combine touching splitters
+  for (int r = 0; r < grid_.nrows(); ++r) {
+    RowHSplitterArray::iterator p = hsplitters_.find(r);
+    if (p == hsplitters_.end()) continue;
+
+    HSplitterArray &splitters = (*p).second;
+
+    bool combine = true;
+
+    while (combine) {
+      combine = false;
+
+      int ns = splitters.size();
+
+      for (int i = 0; ! combine && i < ns; ++i) {
+        HSplitter &splitter1 = splitters[i];
+
+        for (int j = i + 1; ! combine && j < ns; ++j) {
+          HSplitter &splitter2 = splitters[j];
+
+          if (splitter2.col1 <= splitter1.col2 && splitter2.col2 >= splitter1.col1) {
+            splitter1.col1 = std::min(splitter1.col1, splitter2.col1);
+            splitter1.col2 = std::max(splitter1.col2, splitter2.col2);
+
+            std::copy(splitter2.tareas.begin(), splitter2.tareas.end(),
+                      std::inserter(splitter1.tareas, splitter1.tareas.end()));
+            std::copy(splitter2.bareas.begin(), splitter2.bareas.end(),
+                      std::inserter(splitter1.bareas, splitter1.bareas.end()));
+
+            for (int k = j + 1; k < ns; ++k)
+              splitters[k - 1] = splitters[k];
+
+            splitters.pop_back();
+
+            combine = true;
+          }
+        }
+      }
+    }
+  }
+
+  for (int c = 0; c < grid_.ncols(); ++c) {
+    ColVSplitterArray::iterator p = vsplitters_.find(c);
+    if (p == vsplitters_.end()) continue;
+
+    VSplitterArray &splitters = (*p).second;
+
+    bool combine = true;
+
+    while (combine) {
+      combine = false;
+
+      int ns = splitters.size();
+
+      for (int i = 0; ! combine && i < ns; ++i) {
+        VSplitter &splitter1 = splitters[i];
+
+        for (int j = i + 1; ! combine && j < ns; ++j) {
+          VSplitter &splitter2 = splitters[j];
+
+          if (splitter2.row1 <= splitter1.row2 && splitter2.row2 >= splitter1.row1) {
+            splitter1.row1 = std::min(splitter1.row1, splitter2.row1);
+            splitter1.row2 = std::max(splitter1.row2, splitter2.row2);
+
+            std::copy(splitter2.lareas.begin(), splitter2.lareas.end(),
+                      std::inserter(splitter1.lareas, splitter1.lareas.end()));
+            std::copy(splitter2.rareas.begin(), splitter2.rareas.end(),
+                      std::inserter(splitter1.rareas, splitter1.rareas.end()));
+
+            for (int k = j + 1; k < ns; ++k)
+              splitters[k - 1] = splitters[k];
+
+            splitters.pop_back();
+
+            combine = true;
+          }
+        }
+      }
+    }
+  }
+}
+
+// update all area geometries from placement data
+void
+CQTileArea::
 updatePlacementGeometries()
 {
   int np = placementAreas_.size();
@@ -399,6 +688,7 @@ updatePlacementGeometries()
   }
 }
 
+// update area geometry from placement data
 void
 CQTileArea::
 updatePlacementGeometry(PlacementArea &placementArea)
@@ -415,6 +705,7 @@ updatePlacementGeometry(PlacementArea &placementArea)
   }
 }
 
+// add horizontal splitter to placement area row
 void
 CQTileArea::
 addHSplitter(int i, int row, bool top)
@@ -440,25 +731,23 @@ addHSplitter(int i, int row, bool top)
     // handle exact overlap
     if (col1 == splitter.col1 && col2 == splitter.col2) {
       if (top)
-        splitter.bareas.push_back(i);
+        splitter.bareas.insert(i);
       else
-        splitter.tareas.push_back(i);
+        splitter.tareas.insert(i);
 
       return;
     }
 
     // handle join
-    if (CQTileAreaConstants::combine_splitters) {
-      splitter.col1 = std::min(splitter.col1, col1);
-      splitter.col2 = std::max(splitter.col2, col2);
+    splitter.col1 = std::min(splitter.col1, col1);
+    splitter.col2 = std::max(splitter.col2, col2);
 
-      if (top)
-        splitter.bareas.push_back(i);
-      else
-        splitter.tareas.push_back(i);
+    if (top)
+      splitter.bareas.insert(i);
+    else
+      splitter.tareas.insert(i);
 
-      return;
-    }
+    return;
   }
 
   HSplitter splitter;
@@ -467,13 +756,14 @@ addHSplitter(int i, int row, bool top)
   splitter.col2 = col2;
 
   if (top)
-    splitter.bareas.push_back(i);
+    splitter.bareas.insert(i);
   else
-    splitter.tareas.push_back(i);
+    splitter.tareas.insert(i);
 
   hsplitters_[row].push_back(splitter);
 }
 
+// add vertical splitter to placement area columns
 void
 CQTileArea::
 addVSplitter(int i, int col, bool left)
@@ -499,25 +789,21 @@ addVSplitter(int i, int col, bool left)
     // handle exact overlap
     if (row1 == splitter.row1 && row2 == splitter.row2) {
       if (left)
-        splitter.rareas.push_back(i);
+        splitter.rareas.insert(i);
       else
-        splitter.lareas.push_back(i);
+        splitter.lareas.insert(i);
 
       return;
     }
 
     // handle join
-    if (CQTileAreaConstants::combine_splitters) {
-      splitter.row1 = std::min(splitter.row1, row1);
-      splitter.row2 = std::max(splitter.row2, row2);
+    splitter.row1 = std::min(splitter.row1, row1);
+    splitter.row2 = std::max(splitter.row2, row2);
 
-      if (left)
-        splitter.rareas.push_back(i);
-      else
-        splitter.lareas.push_back(i);
-
-      return;
-    }
+    if (left)
+      splitter.rareas.insert(i);
+    else
+      splitter.lareas.insert(i);
   }
 
   VSplitter splitter;
@@ -526,13 +812,14 @@ addVSplitter(int i, int col, bool left)
   splitter.row2 = row2;
 
   if (left)
-    splitter.rareas.push_back(i);
+    splitter.rareas.insert(i);
   else
-    splitter.lareas.push_back(i);
+    splitter.lareas.insert(i);
 
   vsplitters_[col].push_back(splitter);
 }
 
+// check for vertical and horizontal splitter intersection
 void
 CQTileArea::
 intersectVSplitter(int row, const HSplitter &hsplitter)
@@ -554,8 +841,8 @@ intersectVSplitter(int row, const HSplitter &hsplitter)
       if (row <= vsplitter.row1 || row >= vsplitter.row2) continue;
 
       // split
-      std::vector<int> lareas = vsplitter.lareas;
-      std::vector<int> rareas = vsplitter.rareas;
+      AreaSet lareas = vsplitter.lareas;
+      AreaSet rareas = vsplitter.rareas;
 
       vsplitter.lareas.clear();
       vsplitter.rareas.clear();
@@ -565,22 +852,22 @@ intersectVSplitter(int row, const HSplitter &hsplitter)
       vsplitter .row2 = row;
       vsplitter1.row1 = row;
 
-      for (uint j = 0; j < lareas.size(); ++j) {
-        const PlacementArea &placementArea = placementAreas_[lareas[j]];
+      for (AreaSet::iterator pl = lareas.begin(); pl != lareas.end(); ++pl) {
+        const PlacementArea &placementArea = placementAreas_[*pl];
 
         if (placementArea.row1() < row)
-          vsplitter .lareas.push_back(lareas[j]);
+          vsplitter .lareas.insert(*pl);
         else
-          vsplitter1.lareas.push_back(lareas[j]);
+          vsplitter1.lareas.insert(*pl);
       }
 
-      for (uint j = 0; j < rareas.size(); ++j) {
-        const PlacementArea &placementArea = placementAreas_[rareas[j]];
+      for (AreaSet::iterator pr = rareas.begin(); pr != rareas.end(); ++pr) {
+        const PlacementArea &placementArea = placementAreas_[*pr];
 
         if (placementArea.row1() < row)
-          vsplitter .rareas.push_back(rareas[j]);
+          vsplitter .rareas.insert(*pr);
         else
-          vsplitter1.rareas.push_back(rareas[j]);
+          vsplitter1.rareas.insert(*pr);
       }
 
       newVSplitters.push_back(vsplitter1);
@@ -591,6 +878,7 @@ intersectVSplitter(int row, const HSplitter &hsplitter)
   }
 }
 
+// adjust placement area sizes to fit new larger/smaller widget geometry
 void
 CQTileArea::
 adjustToFit()
@@ -670,6 +958,12 @@ adjustToFit()
         // adjust width
         int dw = w1/ns;
 
+        int min_size = (placementArea.area ?
+          placementArea.area->minimumSizeHint().width() : CQTileAreaConstants::min_size);
+
+        if (placementArea.width + dw <= min_size)
+          dw = min_size - placementArea.width;
+
         placementArea.x      = x1;
         placementArea.width += dw;
 
@@ -727,7 +1021,7 @@ adjustToFit()
         pids.push_back(pid);
     }
 
-    // resize placement areas on colum
+    // resize placement areas on column
     int y1 = b;
 
     uint i2 = 0;
@@ -768,6 +1062,12 @@ adjustToFit()
         // adjust height
         int dh = h1/ns;
 
+        int min_size = (placementArea.area ?
+          placementArea.area->minimumSizeHint().height() : CQTileAreaConstants::min_size);
+
+        if (placementArea.height + dh <= min_size)
+          dh = min_size - placementArea.height;
+
         placementArea.y       = y1;
         placementArea.height += dh;
 
@@ -797,8 +1097,122 @@ adjustToFit()
       }
     }
   }
+
+  //-------
+
+  for (int r = 0; r < grid_.nrows(); ++r) {
+    for (int c = 0; c < grid_.nrows(); ++c) {
+      int cell = grid_.cell(r, c);
+
+      int pid = getPlacementAreaIndex(cell);
+
+      if (pid >= 0) {
+        PlacementArea &placementArea = placementAreas_[pid];
+
+        adjustSameWidthPlacements (placementArea);
+        adjustSameHeightPlacements(placementArea);
+      }
+    }
+  }
 }
 
+// ensure all cells to left and right of vertical splitter have same x/width
+void
+CQTileArea::
+adjustSameWidthPlacements(const PlacementArea &area)
+{
+  int is;
+
+  // right splitters
+  if (getVSplitter(area.col1(), area.row1(), area.row2(), is)) {
+    VSplitter &splitter = vsplitters_[area.col1()][is];
+
+    for (AreaSet::iterator pb = splitter.rareas.begin(); pb != splitter.rareas.end(); ++pb) {
+      int pid = *pb;
+
+      PlacementArea &area1 = placementAreas_[pid];
+
+      if (area1.x1() != area.x1()) {
+        area1.x = area.x;
+
+        updatePlacementGeometry(area1);
+      }
+    }
+  }
+
+  // left splitters
+  if (getVSplitter(area.col2(), area.row1(), area.row2(), is)) {
+    VSplitter &splitter = vsplitters_[area.col2()][is];
+
+    for (AreaSet::iterator pt = splitter.lareas.begin(); pt != splitter.lareas.end(); ++pt) {
+      int pid = *pt;
+
+      PlacementArea &area1 = placementAreas_[pid];
+
+      if (area1.x2() != area.x2()) {
+        area1.width = area.x + area.width - area1.x;
+
+        updatePlacementGeometry(area1);
+      }
+    }
+  }
+}
+
+// ensure all cells above and below horizontal splitter have same y/height
+void
+CQTileArea::
+adjustSameHeightPlacements(const PlacementArea &area)
+{
+  int is;
+
+  // above splitters
+  if (getHSplitter(area.row1(), area.col1(), area.col2(), is)) {
+    HSplitter &splitter = hsplitters_[area.row1()][is];
+
+    for (AreaSet::iterator pb = splitter.bareas.begin(); pb != splitter.bareas.end(); ++pb) {
+      int pid = *pb;
+
+      PlacementArea &area1 = placementAreas_[pid];
+
+      if (area1.y1() != area.y1()) {
+        area1.y = area.y;
+
+        updatePlacementGeometry(area1);
+      }
+    }
+  }
+
+  // below splitters
+  if (getHSplitter(area.row2(), area.col1(), area.col2(), is)) {
+    HSplitter &splitter = hsplitters_[area.row2()][is];
+
+    for (AreaSet::iterator pt = splitter.tareas.begin(); pt != splitter.tareas.end(); ++pt) {
+      int pid = *pt;
+
+      PlacementArea &area1 = placementAreas_[pid];
+
+      if (area1.y2() != area.y2()) {
+        area1.height = area.y + area.height - area1.y;
+
+        updatePlacementGeometry(area1);
+      }
+    }
+  }
+}
+
+// update all area title bars
+void
+CQTileArea::
+updateTitles()
+{
+  for (WindowAreas::iterator p = areas_.begin(); p != areas_.end(); ++p) {
+    CQTileWindowArea *area = (*p).second;
+
+    area->updateTitle();
+  }
+}
+
+// get current window
 CQTileWindow *
 CQTileArea::
 currentWindow() const
@@ -816,41 +1230,146 @@ currentWindow() const
     return 0;
 }
 
+// set current window
 void
 CQTileArea::
 setCurrentWindow(CQTileWindow *window)
 {
-  for (WindowAreas::const_iterator p = areas_.begin(); p != areas_.end(); ++p) {
-    CQTileWindowArea *area = (*p).second;
+  if (window == currentWindow())
+    return;
 
+  CQTileWindowArea *area = getWindowArea(window);
+
+  if (area) {
     area->setCurrentWindow(window);
+
+    setCurrentArea(area);
+  }
+
+  updateCurrentWindow();
+
+  window = currentWindow();
+
+  if (window)
+    window->setFocus(Qt::OtherFocusReason);
+}
+
+// update current window title and icon
+void
+CQTileArea::
+updateCurrentWindow()
+{
+  CQTileWindow *window = currentWindow();
+
+  if (window) {
+    window->area()->setWindowTitle(window->getTitle());
+    window->area()->setWindowIcon (window->getIcon ());
+
+    setWindowTitle(window->getTitle());
+    setWindowIcon (window->getIcon ());
   }
 }
 
+// get area for window
+CQTileWindowArea *
+CQTileArea::
+getWindowArea(CQTileWindow *window) const
+{
+  for (WindowAreas::const_iterator p = areas_.begin(); p != areas_.end(); ++p) {
+    CQTileWindowArea *area = (*p).second;
+
+    if (area->hasWindow(window))
+      return area;
+  }
+
+  return 0;
+}
+
+// notify current window has changed
+void
+CQTileArea::
+emitCurrentWindowChanged()
+{
+  emit currentWindowChanged(currentWindow());
+}
+
+// set current area
 void
 CQTileArea::
 setCurrentArea(CQTileWindowArea *area)
 {
+  if (area == currentArea_)
+    return;
+
   currentArea_ = area;
 
+  // update all areas
   for (WindowAreas::const_iterator p = areas_.begin(); p != areas_.end(); ++p) {
     CQTileWindowArea *area = (*p).second;
 
     area->update();
   }
+
+  // set focus to current area's current window
+  if (currentArea_) {
+    CQTileWindow *currentWindow = currentArea_->currentWindow();
+
+    if (currentWindow)
+      currentWindow->setFocus(Qt::OtherFocusReason);
+  }
+
+  // notify current window changed
+  emitCurrentWindowChanged();
 }
 
+// check if full screen display
+bool
+CQTileArea::
+isFullScreen() const
+{
+  return grid_.isSingleCell();
+}
+
+// get list of all windows
+CQTileArea::Windows
+CQTileArea::
+getAllWindows() const
+{
+  Windows windows;
+
+  for (WindowAreas::const_iterator p = areas_.begin(); p != areas_.end(); ++p) {
+    CQTileWindowArea *area = (*p).second;
+
+    const CQTileWindowArea::Windows &areaWindows = area->getWindows();
+
+    std::copy(areaWindows.begin(), areaWindows.end(), std::back_inserter(windows));
+  }
+
+  return windows;
+}
+
+// get array index of placement area of specified id
 int
 CQTileArea::
 getPlacementAreaIndex(int id) const
 {
-  int np = placementAreas_.size();
+  return getPlacementAreaIndex(placementAreas_, id);
+}
+
+// get array index of placement area of specified id
+int
+CQTileArea::
+getPlacementAreaIndex(const PlacementAreas &placementAreas, int id) const
+{
+  int np = placementAreas.size();
 
   for (int i = 0; i < np; ++i) {
-    const PlacementArea &placementArea = placementAreas_[i];
+    const PlacementArea &placementArea = placementAreas[i];
 
+    // check for id match of area
     if      (placementArea.area && placementArea.area->id() == id)
       return i;
+    // zero id matches empty area
     else if (! placementArea.area && ! id)
       return i;
   }
@@ -858,6 +1377,7 @@ getPlacementAreaIndex(int id) const
   return -1;
 }
 
+// get array at specified row, column
 CQTileWindowArea *
 CQTileArea::
 getAreaAt(int row, int col) const
@@ -872,6 +1392,7 @@ getAreaAt(int row, int col) const
     return 0;
 }
 
+// get horizontal splitter at specified row and column range (index returned if found)
 bool
 CQTileArea::
 getHSplitter(int row, int col1, int col2, int &is)
@@ -901,6 +1422,7 @@ getHSplitter(int row, int col1, int col2, int &is)
   return (is >= 0);
 }
 
+// get vertical splitter at specified column and row range (index returned if found)
 bool
 CQTileArea::
 getVSplitter(int col, int row1, int row2, int &is)
@@ -930,6 +1452,7 @@ getVSplitter(int col, int row1, int row2, int &is)
   return (is >= 0);
 }
 
+// get bounding box of horizontal specified splitter
 QRect
 CQTileArea::
 getHSplitterRect(const HSplitter &splitter) const
@@ -938,10 +1461,8 @@ getHSplitterRect(const HSplitter &splitter) const
 
   int x1 = INT_MAX, x2 = INT_MIN, yt = INT_MIN, yb = INT_MAX;
 
-  int nt = splitter.tareas.size();
-
-  for (int i = 0; i < nt; ++i) {
-    int area = splitter.tareas[i];
+  for (AreaSet::iterator pt = splitter.tareas.begin(); pt != splitter.tareas.end(); ++pt) {
+    int area = *pt;
 
     const PlacementArea &placementArea = placementAreas_[area];
 
@@ -951,10 +1472,8 @@ getHSplitterRect(const HSplitter &splitter) const
     x2 = std::max(x2, placementArea.x2());
   }
 
-  int nb = splitter.bareas.size();
-
-  for (int i = 0; i < nb; ++i) {
-    int area = splitter.bareas[i];
+  for (AreaSet::iterator pb = splitter.bareas.begin(); pb != splitter.bareas.end(); ++pb) {
+    int area = *pb;
 
     const PlacementArea &placementArea = placementAreas_[area];
 
@@ -967,9 +1486,10 @@ getHSplitterRect(const HSplitter &splitter) const
   if (yt == INT_MIN) yt = yb - ss;
   if (yb == INT_MAX) yb = yt + ss;
 
-  return QRect(x1, (yt + yb)/2 - ss/2, x2 - x1 + 1, ss);
+  return QRect(x1, (yt + yb)/2 - ss/2, x2 - x1, ss);
 }
 
+// get bounding box of horizontal specified splitter
 QRect
 CQTileArea::
 getVSplitterRect(const VSplitter &splitter) const
@@ -978,10 +1498,8 @@ getVSplitterRect(const VSplitter &splitter) const
 
   int y1 = INT_MAX, y2 = INT_MIN, xl = INT_MIN, xr = INT_MAX;
 
-  int nl = splitter.lareas.size();
-
-  for (int i = 0; i < nl; ++i) {
-    int area = splitter.lareas[i];
+  for (AreaSet::iterator pl = splitter.lareas.begin(); pl != splitter.lareas.end(); ++pl) {
+    int area = *pl;
 
     const PlacementArea &placementArea = placementAreas_[area];
 
@@ -991,10 +1509,8 @@ getVSplitterRect(const VSplitter &splitter) const
     y2 = std::max(y2, placementArea.y2());
   }
 
-  int nr = splitter.rareas.size();
-
-  for (int i = 0; i < nr; ++i) {
-    int area = splitter.rareas[i];
+  for (AreaSet::iterator pr = splitter.rareas.begin(); pr != splitter.rareas.end(); ++pr) {
+    int area = *pr;
 
     const PlacementArea &placementArea = placementAreas_[area];
 
@@ -1007,73 +1523,83 @@ getVSplitterRect(const VSplitter &splitter) const
   if (xl == INT_MIN) xl = xr - ss;
   if (xr == INT_MAX) xr = xl + ss;
 
-  return QRect((xl + xr)/2 - ss/2, y1, ss, y2 - y1 + 1);
+  return QRect((xl + xr)/2 - ss/2, y1, ss, y2 - y1);
 }
 
+// maximize all windows
+// TODO: skip non-docked
 void
 CQTileArea::
 maximizeWindows()
 {
-  if (maximized_) {
-    restoreState(maximizeState_);
+  if (isMaximized())
+    return;
 
-    for (WindowAreas::const_iterator p = areas_.begin(); p != areas_.end(); ++p) {
-      CQTileWindowArea *area = (*p).second;
+  if (areas_.size() == 1)
+    return;
 
-      area->setMaximized(false);
-    }
+  saveState(maximizeState_, false);
 
-    maximized_ = false;
+  // save all windows
+  // TODO: only docked
+  std::vector<CQTileWindow *> windows;
+
+  for (WindowAreas::const_iterator p = areas_.begin(); p != areas_.end(); ++p) {
+    CQTileWindowArea *area = (*p).second;
+
+    const CQTileWindowArea::Windows &areaWindows = area->getWindows();
+
+    std::copy(areaWindows.begin(), areaWindows.end(), std::back_inserter(windows));
   }
-  else {
-    if (areas_.size() == 1)
-      return;
 
-    saveState(maximizeState_, false);
+  // reparent so not deleted
+  for (std::vector<CQTileWindow *>::iterator p = windows.begin(); p != windows.end(); ++p)
+    (*p)->setParent(this);
 
-    maximized_ = true;
+  // delete old areas (TODO: save one ?)
+  for (WindowAreas::const_iterator p = areas_.begin(); p != areas_.end(); ++p) {
+    CQTileWindowArea *area = (*p).second;
 
-    // save all windows
-    std::vector<CQTileWindow *> windows;
-
-    for (WindowAreas::const_iterator p = areas_.begin(); p != areas_.end(); ++p) {
-      CQTileWindowArea *area = (*p).second;
-
-      const CQTileWindowArea::Windows &areaWindows = area->getWindows();
-
-      std::copy(areaWindows.begin(), areaWindows.end(), std::back_inserter(windows));
-    }
-
-    // reparent so not deleted
-    for (std::vector<CQTileWindow *>::iterator p = windows.begin(); p != windows.end(); ++p)
-      (*p)->setParent(this);
-
-    // delete old areas (TODO: save one ?)
-    for (WindowAreas::const_iterator p = areas_.begin(); p != areas_.end(); ++p)
-      delete (*p).second;
-
-    // reset
-    areas_.clear();
-    grid_ .reset();
-
-    setCurrentArea(0);
-
-    // create new area
-    CQTileWindowArea *windowArea = addArea();
-
-    // add windows to new area (as tabs)
-    for (std::vector<CQTileWindow *>::iterator p = windows.begin(); p != windows.end(); ++p) {
-      CQTileWindow *window = *p;
-
-      windowArea->addWindow(window);
-    }
-
-    addWindowArea(windowArea, 0, 0, 1, 1);
-
-    windowArea->setMaximized(true);
+    area->deleteLater();
   }
+
+  // reset
+  areas_.clear();
+  grid_ .reset();
+
+  currentArea_ = 0;
+
+  // create new area
+  CQTileWindowArea *windowArea = addArea();
+
+  // add windows to new area (as tabs)
+  for (std::vector<CQTileWindow *>::iterator p = windows.begin(); p != windows.end(); ++p) {
+    CQTileWindow *window = *p;
+
+    windowArea->addWindow(window);
+  }
+
+  addWindowArea(windowArea, 0, 0, 1, 1);
 }
 
+// restore all windows
+// TODO: skip non-docked
+void
+CQTileArea::
+restoreWindows()
+{
+  if (! maximizeState_.valid_)
+    return;
+
+  PlacementState newState = maximizeState_;
+
+  saveState(maximizeState_, false);
+
+  restoreState(maximizeState_);
+}
+
+// tile all windows
+// TODO: skip non-docked
 void
 CQTileArea::
 tileWindows()
@@ -1094,22 +1620,27 @@ tileWindows()
     (*p)->setParent(this);
 
   // delete old areas
-  for (WindowAreas::const_iterator p = areas_.begin(); p != areas_.end(); ++p)
-    delete (*p).second;
+  for (WindowAreas::const_iterator p = areas_.begin(); p != areas_.end(); ++p) {
+    CQTileWindowArea *area = (*p).second;
+
+    area->deleteLater();
+  }
 
   // reset
   areas_.clear();
   grid_ .reset();
 
-  setCurrentArea(0);
+  currentArea_ = 0;
 
   // determine grid size
-  int nrows = int(sqrt(windows.size()) + 0.5);
+  int nrows = int(std::sqrt((double) windows.size()) + 0.5);
   int ncols = windows.size() / nrows;
 
   if (windows.size() % nrows) ++nrows;
 
   grid_.setSize(nrows, ncols);
+
+  grid_.clear();
 
   // create new areas (one per window)
   int r = 0, c = 0;
@@ -1132,39 +1663,27 @@ tileWindows()
     }
   }
 
-  if (isVisible()) {
-    // remove empty cells and cleanup duplicate rows and columns
-    fillEmptyCells();
-
-    removeDuplicateCells();
-
-    //------
-
-    // update placement
-    gridToPlacement();
-
-    adjustToFit();
-  }
-
-  if (CQTileAreaConstants::debug_grid)
-    grid_.print(std::cerr);
+  if (isVisible())
+    updatePlacement();
 }
 
+// is maximized
+bool
+CQTileArea::
+isMaximized() const
+{
+  return (areas_.size() <= 1);
+}
+
+// update placement on show (if non-visible placement is deferred)
 void
 CQTileArea::
 showEvent(QShowEvent *)
 {
-  fillEmptyCells();
-
-  removeDuplicateCells();
-
-  //----
-
-  gridToPlacement();
-
-  adjustToFit();
+  updatePlacement();
 }
 
+// update placement sizes on resize
 void
 CQTileArea::
 resizeEvent(QResizeEvent *)
@@ -1172,15 +1691,14 @@ resizeEvent(QResizeEvent *)
   adjustToFit();
 }
 
+// draw splitters
 void
 CQTileArea::
 paintEvent(QPaintEvent *)
 {
   QStylePainter ps(this);
 
-  //ps.fillRect(rect(), palette().color(QPalette::Window));
-  //ps.fillRect(rect(), QBrush(QColor(200,250,200)));
-
+  // draw horizontal splitters
   for (RowHSplitterArray::iterator p = hsplitters_.begin(); p != hsplitters_.end(); ++p) {
     HSplitterArray &splitters = (*p).second;
 
@@ -1207,6 +1725,7 @@ paintEvent(QPaintEvent *)
     }
   }
 
+  // draw vertical splitters
   for (ColVSplitterArray::iterator p = vsplitters_.begin(); p != vsplitters_.end(); ++p) {
     VSplitterArray &splitters = (*p).second;
 
@@ -1234,36 +1753,39 @@ paintEvent(QPaintEvent *)
   }
 }
 
-void
+// draw rubberband for currently highlighted area side (returns rectangle used)
+QRect
 CQTileArea::
 updateRubberBand()
 {
+  QRect rect;
+
   QPoint tl = mapToGlobal(QPoint(0, 0));
 
-  if (! CQTileAreaConstants::animated_preview) {
+  if (! animateDrag()) {
     if (highlight_.side != NO_SIDE) {
-      int ss = splitterSize();
-
-      QRect rect;
+      int hs = CQTileAreaConstants::highlight_size;
 
       if      (highlight_.ind != -1) {
         const PlacementArea &area = placementAreas_[highlight_.ind];
 
         if      (highlight_.side == LEFT_SIDE)
-          rect = QRect(area.x1() - ss/2, area.y1(), ss/2, area.y2() - area.y1());
+          rect = QRect(area.x1() - hs/2, area.y1(), hs/2, area.y2() - area.y1());
         else if (highlight_.side == RIGHT_SIDE)
-          rect = QRect(area.x2(), area.y1(), ss/2, area.y2() - area.y1());
+          rect = QRect(area.x2(), area.y1(), hs/2, area.y2() - area.y1());
         else if (highlight_.side == TOP_SIDE)
-          rect = QRect(area.x1(), area.y1() - ss/2, area.x2() - area.x1(), ss/2);
+          rect = QRect(area.x1(), area.y1() - hs/2, area.x2() - area.x1(), hs/2);
         else if (highlight_.side == BOTTOM_SIDE)
-          rect = QRect(area.x1(), area.y2(), area.x2() - area.x1(), ss/2);
+          rect = QRect(area.x1(), area.y2(), area.x2() - area.x1(), hs/2);
         else if (highlight_.side == MIDDLE_SIDE)
           rect = QRect(area.x1(), area.y1(), area.x2() - area.x1(),  area.y2() - area.y1());
       }
       else
         rect = QRect(0, 0, width(), height());
 
-      rubberBand_->setGeometry(rect.adjusted(tl.x(), tl.y(), tl.x(), tl.y()));
+      rect.adjust(tl.x(), tl.y(), tl.x(), tl.y());
+
+      rubberBand_->setGeometry(rect);
 
       rubberBand_->show();
     }
@@ -1279,15 +1801,20 @@ updateRubberBand()
     if (pid >= 0) {
       PlacementArea &placementArea = placementAreas_[pid];
 
-      rubberBand_->setGeometry(placementArea.rect().adjusted(tl.x(), tl.y(), tl.x(), tl.y()));
+      rect = placementArea.rect().adjusted(tl.x(), tl.y(), tl.x(), tl.y());
+
+      rubberBand_->setGeometry(rect);
 
       rubberBand_->show();
     }
     else
       hideRubberBand();
   }
+
+  return rect;
 }
 
+// hide rubberband
 void
 CQTileArea::
 hideRubberBand()
@@ -1295,6 +1822,7 @@ hideRubberBand()
   rubberBand_->hide();
 }
 
+// handle mouse press (start move of splitter)
 void
 CQTileArea::
 mousePressEvent(QMouseEvent *e)
@@ -1307,25 +1835,23 @@ mousePressEvent(QMouseEvent *e)
   update();
 }
 
+// handle mouse move (move splitter to resize placement areas or highlight splitter under mouse)
 void
 CQTileArea::
 mouseMoveEvent(QMouseEvent *e)
 {
   if (mouseState_.pressed) {
+    // move current horizontal splitter by mouse delta
     int dx = e->globalPos().x() - mouseState_.pressPos.x();
     int dy = e->globalPos().y() - mouseState_.pressPos.y();
 
-    // move horizontal splitter
     if (dy && mouseState_.pressHSplitter.first >= 0) {
       HSplitter &splitter =
         hsplitters_[mouseState_.pressHSplitter.first][mouseState_.pressHSplitter.second];
 
-      int nt = splitter.tareas.size();
-      int nb = splitter.bareas.size();
-
       // limit dy
-      for (int i = 0; i < nt; ++i) {
-        int area = splitter.tareas[i];
+      for (AreaSet::iterator pt = splitter.tareas.begin(); pt != splitter.tareas.end(); ++pt) {
+        int area = *pt;
 
         PlacementArea &placementArea = placementAreas_[area];
 
@@ -1336,8 +1862,8 @@ mouseMoveEvent(QMouseEvent *e)
           dy = min_size - placementArea.height;
       }
 
-      for (int i = 0; i < nb; ++i) {
-        int area = splitter.bareas[i];
+      for (AreaSet::iterator pb = splitter.bareas.begin(); pb != splitter.bareas.end(); ++pb) {
+        int area = *pb;
 
         PlacementArea &placementArea = placementAreas_[area];
 
@@ -1349,8 +1875,8 @@ mouseMoveEvent(QMouseEvent *e)
       }
 
       // apply dy to placement areas
-      for (int i = 0; i < nt; ++i) {
-        int area = splitter.tareas[i];
+      for (AreaSet::iterator pt = splitter.tareas.begin(); pt != splitter.tareas.end(); ++pt) {
+        int area = *pt;
 
         PlacementArea &placementArea = placementAreas_[area];
 
@@ -1359,8 +1885,8 @@ mouseMoveEvent(QMouseEvent *e)
         updatePlacementGeometry(placementArea);
       }
 
-      for (int i = 0; i < nb; ++i) {
-        int area = splitter.bareas[i];
+      for (AreaSet::iterator pb = splitter.bareas.begin(); pb != splitter.bareas.end(); ++pb) {
+        int area = *pb;
 
         PlacementArea &placementArea = placementAreas_[area];
 
@@ -1371,17 +1897,14 @@ mouseMoveEvent(QMouseEvent *e)
       }
     }
 
-    // move vertical splitter
+    // move current vertical splitter by mouse delta
     if (dx && mouseState_.pressVSplitter.first >= 0) {
       VSplitter &splitter =
         vsplitters_[mouseState_.pressVSplitter.first][mouseState_.pressVSplitter.second];
 
-      int nl = splitter.lareas.size();
-      int nr = splitter.rareas.size();
-
       // limit dx
-      for (int i = 0; i < nl; ++i) {
-        int area = splitter.lareas[i];
+      for (AreaSet::iterator pl = splitter.lareas.begin(); pl != splitter.lareas.end(); ++pl) {
+        int area = *pl;
 
         PlacementArea &placementArea = placementAreas_[area];
 
@@ -1392,8 +1915,8 @@ mouseMoveEvent(QMouseEvent *e)
           dx = min_size - placementArea.width;
       }
 
-      for (int i = 0; i < nr; ++i) {
-        int area = splitter.rareas[i];
+      for (AreaSet::iterator pr = splitter.rareas.begin(); pr != splitter.rareas.end(); ++pr) {
+        int area = *pr;
 
         PlacementArea &placementArea = placementAreas_[area];
 
@@ -1405,8 +1928,8 @@ mouseMoveEvent(QMouseEvent *e)
       }
 
       // apply dx to placement areas
-      for (int i = 0; i < nl; ++i) {
-        int area = splitter.lareas[i];
+      for (AreaSet::iterator pl = splitter.lareas.begin(); pl != splitter.lareas.end(); ++pl) {
+        int area = *pl;
 
         PlacementArea &placementArea = placementAreas_[area];
 
@@ -1415,8 +1938,8 @@ mouseMoveEvent(QMouseEvent *e)
         updatePlacementGeometry(placementArea);
       }
 
-      for (int i = 0; i < nr; ++i) {
-        int area = splitter.rareas[i];
+      for (AreaSet::iterator pr = splitter.rareas.begin(); pr != splitter.rareas.end(); ++pr) {
+        int area = *pr;
 
         PlacementArea &placementArea = placementAreas_[area];
 
@@ -1431,8 +1954,8 @@ mouseMoveEvent(QMouseEvent *e)
 
     update();
   }
+  // check for splitter under mouse and update cursor and highlight
   else {
-    // check for mouse over h/v splitter
     SplitterInd mouseHSplitter = getHSplitterAtPos(e->pos());
     SplitterInd mouseVSplitter = getVSplitterAtPos(e->pos());
 
@@ -1453,6 +1976,7 @@ mouseMoveEvent(QMouseEvent *e)
   }
 }
 
+// handle mouse release
 void
 CQTileArea::
 mouseReleaseEvent(QMouseEvent *)
@@ -1462,6 +1986,7 @@ mouseReleaseEvent(QMouseEvent *)
   update();
 }
 
+// get horizontal splitter at position
 CQTileArea::SplitterInd
 CQTileArea::
 getHSplitterAtPos(const QPoint &pos) const
@@ -1482,6 +2007,7 @@ getHSplitterAtPos(const QPoint &pos) const
   return SplitterInd(-1,-1);
 }
 
+// get vertical splitter at position
 CQTileArea::SplitterInd
 CQTileArea::
 getVSplitterAtPos(const QPoint &pos) const
@@ -1502,12 +2028,14 @@ getVSplitterAtPos(const QPoint &pos) const
   return SplitterInd(-1,-1);
 }
 
+// set highlighted area and area side for specified (global) position
 void
 CQTileArea::
 setHighlight(const QPoint &pos)
 {
   highlight_ = Highlight(-1, NO_SIDE);
 
+  // ignore if not inside area
   QPoint tl = mapToGlobal(QPoint(          0,            0));
   QPoint br = mapToGlobal(QPoint(width() - 1, height() - 1));
 
@@ -1516,6 +2044,9 @@ setHighlight(const QPoint &pos)
     return;
   }
 
+  //-------
+
+  // check inside each placement area
   int  minD    = INT_MAX;
   int  minI    = -1     ;
   Side minSide = LEFT_SIDE;
@@ -1525,6 +2056,7 @@ setHighlight(const QPoint &pos)
   for (int i = 0; i < np; ++i) {
     const PlacementArea &placementArea = placementAreas_[i];
 
+    // determine nearest side or center depending on distance to edges or rectangle center
     int dx1 = abs(tl.x() + placementArea.x1() - pos.x());
     int dy1 = abs(tl.y() + placementArea.y1() - pos.y());
     int dx2 = abs(tl.x() + placementArea.x2() - pos.x());
@@ -1533,13 +2065,14 @@ setHighlight(const QPoint &pos)
     int  d;
     Side side = NO_SIDE;
 
+    // to left of area
     if      (pos.x() < tl.x() + placementArea.x1()) {
       if      (pos.y() < tl.y() + placementArea.y1()) {
-        d    = sqrt(dx1*dx1 + dy1*dy1);
+        d    = std::sqrt((double) (dx1*dx1 + dy1*dy1));
         side = (dx1 < dy1 ? LEFT_SIDE : TOP_SIDE);
       }
       else if (pos.y() > tl.y() + placementArea.y2()) {
-        d    = sqrt(dx1*dx1 + dy2*dy2);
+        d    = std::sqrt((double) (dx1*dx1 + dy2*dy2));
         side = (dx1 < dy1 ? LEFT_SIDE : BOTTOM_SIDE);
       }
       else {
@@ -1547,13 +2080,14 @@ setHighlight(const QPoint &pos)
         side = LEFT_SIDE;
       }
     }
+    // to right of area
     else if (pos.x() > tl.x() + placementArea.x2()) {
       if      (pos.y() < tl.y() + placementArea.y1()) {
-        d    = sqrt(dx2*dx2 + dy1*dy1);
+        d    = std::sqrt((double) (dx2*dx2 + dy1*dy1));
         side = (dx1 < dy1 ? RIGHT_SIDE : TOP_SIDE);
       }
       else if (pos.y() > tl.y() + placementArea.y2()) {
-        d    = sqrt(dx2*dx2 + dy2*dy2);
+        d    = std::sqrt((double) (dx2*dx2 + dy2*dy2));
         side = (dx1 < dy1 ? RIGHT_SIDE : BOTTOM_SIDE);
       }
       else {
@@ -1561,6 +2095,7 @@ setHighlight(const QPoint &pos)
         side = RIGHT_SIDE;
       }
     }
+    // inside (x) of area
     else {
       if      (pos.y() < tl.y() + placementArea.y1()) {
         d    = dy1;
@@ -1576,26 +2111,35 @@ setHighlight(const QPoint &pos)
         if      (dx1 == d) side = LEFT_SIDE;
         else if (dx2 == d) side = RIGHT_SIDE;
         else if (dy1 == d) side = TOP_SIDE;
-        else if (dx2 == d) side = BOTTOM_SIDE;
+        else if (dy2 == d) side = BOTTOM_SIDE;
+        else assert(false);
       }
     }
 
+    // update nearest side
     if (d < minD) { minD = d; minI = i; minSide = side; }
 
     int dxm = abs(tl.x() + placementArea.xm() - pos.x());
     int dym = abs(tl.y() + placementArea.ym() - pos.y());
 
-    d = sqrt(dxm*dxm + dym*dym);
+    //----
+
+    // check center distance
+    d = std::sqrt((double) (dxm*dxm + dym*dym));
 
     if (d < minD) { minD = d; minI = i; minSide = MIDDLE_SIDE; }
   }
 
+  //------
+
+  // set highlight to nearest
   highlight_ = Highlight(minI, minSide);
 
-  if (! CQTileAreaConstants::animated_preview)
-    updateRubberBand();
+  if (! animateDrag())
+    (void) updateRubberBand();
 }
 
+// clear highlight
 void
 CQTileArea::
 clearHighlight()
@@ -1603,10 +2147,11 @@ clearHighlight()
   highlight_.ind  = -1;
   highlight_.side = NO_SIDE;
 
-  if (! CQTileAreaConstants::animated_preview)
+  if (! animateDrag())
     hideRubberBand();
 }
 
+// get highlight grid row and column ranges
 bool
 CQTileArea::
 getHighlightPos(Side &side, int &row1, int &col1, int &row2, int &col2)
@@ -1651,23 +2196,21 @@ getHighlightPos(Side &side, int &row1, int &col1, int &row2, int &col2)
   return true;
 }
 
-void
-CQTileArea::
-saveState(bool transient)
-{
-  saveState(saveState_, transient);
-}
-
+// save placement state
 void
 CQTileArea::
 saveState(PlacementState &state, bool transient)
 {
+  // save grid, placement and splitters
+  state.valid_          = true;
   state.transient_      = transient;
   state.grid_           = grid_;
   state.placementAreas_ = placementAreas_;
   state.hsplitters_     = hsplitters_;
   state.vsplitters_     = vsplitters_;
 
+  // for transient we know we are not modifying the data so we don't
+  // need to save the windows for each area
   if (! transient) {
     for (uint i = 0; i < placementAreas_.size(); ++i) {
       CQTileWindowArea *area = placementAreas_[i].area;
@@ -1679,29 +2222,32 @@ saveState(PlacementState &state, bool transient)
   }
 }
 
-void
-CQTileArea::
-restoreState()
-{
-  restoreState(saveState_);
-}
-
+// restore placement state
 void
 CQTileArea::
 restoreState(const PlacementState &state)
 {
+  assert(state.valid_);
+
+  // restore grid, placement areas and splitters
   grid_           = state.grid_;
   placementAreas_ = state.placementAreas_;
   hsplitters_     = state.hsplitters_;
   vsplitters_     = state.vsplitters_;
 
+  // if not transient then rebuild all the areas from the saved area windows
   if (! state.transient_) {
+    int currentAreaInd = -1;
+
     for (uint i = 0; i < placementAreas_.size(); ++i) {
       PlacementArea &area = placementAreas_[i];
 
       // reparent windows so not deleted
       for (Windows::iterator p = area.windows.begin(); p != area.windows.end(); ++p)
         (*p)->setParent(this);
+
+      if (area.area == currentArea_)
+        currentAreaInd = i;
     }
 
     // save old areas and clear areas
@@ -1709,7 +2255,7 @@ restoreState(const PlacementState &state)
 
     areas_.clear();
 
-    setCurrentArea(0);
+    currentArea_ = 0;
 
     // create new areas for placement areas
     for (uint i = 0; i < placementAreas_.size(); ++i) {
@@ -1717,7 +2263,7 @@ restoreState(const PlacementState &state)
 
       CQTileWindowArea *newArea = addArea();
 
-      // reparent windows so not deleted
+      // add windows to area
       for (Windows::iterator p = area.windows.begin(); p != area.windows.end(); ++p)
         newArea->addWindow(*p);
 
@@ -1726,17 +2272,35 @@ restoreState(const PlacementState &state)
 
       // update placement area id
       placementAreas_[i].area = newArea;
+
+      // update current area
+      if (int(i) == currentAreaInd)
+        currentArea_ = newArea;
     }
 
-    /// delete old areas
-    for (WindowAreas::const_iterator p = areas.begin(); p != areas.end(); ++p)
-      delete (*p).second;
+    // delete old areas
+    for (WindowAreas::const_iterator p = areas.begin(); p != areas.end(); ++p) {
+      CQTileWindowArea *area = (*p).second;
+
+      area->deleteLater();
+    }
 
     if (CQTileAreaConstants::debug_grid)
       grid_.print(std::cerr);
+
+    emitCurrentWindowChanged();
   }
 
+  // update widgets to new sizes
   updatePlacementGeometries();
+}
+
+void
+CQTileArea::
+setDefPlacementSize(int w, int h)
+{
+  defWidth_  = w;
+  defHeight_ = h;
 }
 
 void
@@ -1774,47 +2338,107 @@ adjustSlot()
   adjustToFit();
 }
 
+QSize
+CQTileArea::
+sizeHint() const
+{
+  std::map<int,int> widths;
+  std::map<int,int> heights;
+
+  int ncells = grid_.nrows()*grid_.ncols();
+
+  for (int ci = 0; ci < ncells; ++ci) {
+    int cell = grid_.cell(ci);
+    if (cell < 0) continue;
+
+    int pid = getPlacementAreaIndex(cell);
+    if (pid < 0) continue;
+
+    const PlacementArea &placementArea = placementAreas_[pid];
+    if (! placementArea.area) continue;
+
+    int r = ci / grid_.ncols();
+    int c = ci % grid_.ncols();
+
+    QSize s = placementArea.area->sizeHint();
+
+    widths [c] = std::max(widths [c], s.width ()/placementArea.ncols);
+    heights[c] = std::max(heights[r], s.height()/placementArea.ncols);
+  }
+
+  int w = 0, h = 0;
+
+  for (int c = 0; c > grid_.ncols(); ++c)
+    w += widths[c];
+
+  for (int r = 0; r > grid_.nrows(); ++r)
+    h += heights[r];
+
+  return QSize(w, h);
+}
+
+QSize
+CQTileArea::
+minimumSizeHint() const
+{
+  QFontMetrics fm(font());
+
+  int fh = fm.height() + 4;
+
+  int w = grid_.ncols()*4;
+  int h = grid_.nrows()*(fh + 4);
+
+  return QSize(w, h);
+}
+
 //-------
 
 int CQTileWindowArea::lastId_;
 
+// create area
 CQTileWindowArea::
 CQTileWindowArea(CQTileArea *area) :
- area_(area), detached_(false), floating_(false), maximized_(false)
+ area_(area), detached_(false), floating_(false)
 {
   setObjectName("area");
 
   setCursor(Qt::ArrowCursor);
 
+  // asign unique id to area
   id_ = ++lastId_;
 
+  // add frame
   setFrameStyle(QFrame::Panel | QFrame::Raised);
   setLineWidth(1);
 
   QVBoxLayout *layout = new QVBoxLayout(this);
   layout->setMargin(0); layout->setSpacing(0);
 
+  // create titlebar, stacked widget (for views) and tabbar to switch between views
   title_  = new CQTileWindowTitle(this);
-  stack_  = new QStackedWidget;
-  tabBar_ = new QTabBar;
-
-  stack_ ->setObjectName("stack");
-  tabBar_->setObjectName("tabbar");
-
-  tabBar_->setMovable(true);
+  stack_  = new CQTileStackedWidget(this);
+  tabBar_ = new CQTileWindowTabBar(this);
 
   layout->addWidget(title_);
   layout->addWidget(stack_);
   layout->addWidget(tabBar_);
 
   connect(tabBar_, SIGNAL(currentChanged(int)), this, SLOT(tabChangedSlot(int)));
+
+  // create timer for attach animation
+  attachData_.timer = new QTimer(this);
+
+  attachData_.timer->setSingleShot(true);
+
+  connect(attachData_.timer, SIGNAL(timeout()), this, SLOT(attachPreviewSlot()));
 }
 
+// add widget (view) to area
 CQTileWindow *
 CQTileWindowArea::
 addWidget(QWidget *w)
 {
-  CQTileWindow *window = new CQTileWindow;
+  CQTileWindow *window = new CQTileWindow(this);
 
   window->setWidget(w);
 
@@ -1823,54 +2447,107 @@ addWidget(QWidget *w)
   return window;
 }
 
+// add window to area
 void
 CQTileWindowArea::
 addWindow(CQTileWindow *window)
 {
+  window->setArea(this);
+
   stack_->addWidget(window);
 
   windows_.push_back(window);
 
-  int ind = tabBar_->addTab(window->widget()->windowTitle());
+  int ind = tabBar_->addTab(window->getTitle());
 
   tabBar_->setTabData(ind, ind);
 
+  // show tabbar if more than one window
   tabBar_->setVisible(tabBar_->count() > 1);
 }
 
+// remove window from area
+bool
+CQTileWindowArea::
+removeWindow(CQTileWindow *window)
+{
+  window->setArea(0);
+
+  int ind = -1;
+
+  int nw = windows_.size();
+
+  for (int i = 0; i < nw; ++i) {
+    if (ind < 0)
+      ind = (windows_[i] == window ? i : -1);
+    else
+      windows_[i - 1] = windows_[i];
+  }
+
+  if (ind >= 0)
+    windows_.pop_back();
+
+  stack_->removeWidget(window);
+
+  for (int i = 0; i < tabBar_->count(); ++i) {
+    if (tabBar_->tabData(i).toInt() == ind) {
+      tabBar_->removeTab(i);
+      break;
+    }
+  }
+
+  return windows_.empty();
+}
+
+// get title for area
 QString
 CQTileWindowArea::
 getTitle() const
 {
   CQTileWindow *window = currentWindow();
 
-  return (window ? window->widget()->windowTitle() : "");
+  return (window ? window->getTitle() : "");
 }
 
+// get icon for area
 QIcon
 CQTileWindowArea::
 getIcon() const
 {
   CQTileWindow *window = currentWindow();
 
-  return (window ? window->widget()->windowIcon() : QIcon());
+  return (window ? window->getIcon() : QIcon());
 }
 
+// detach window from area
 void
 CQTileWindowArea::
-detach(const QPoint &pos, bool dragAll)
+detachSlot()
 {
+  if (! isDocked())
+    return;
+
+  detach(QPoint(), false, false);
+}
+
+// detach window from area with mouse position (if any)
+void
+CQTileWindowArea::
+detach(const QPoint &pos, bool floating, bool dragAll)
+{
+  static int detachPos = 16;
+
   // remove window area from grid and display as floating window
-  assert(! detached_ && ! floating_);
+  assert(isDocked());
 
   //----
 
-  // save state
-  //area_->saveState();
+  setDetached(! floating);
+  setFloating(floating);
 
   //-----
 
-  QPoint lpos = mapFromGlobal(pos);
+  QPoint lpos = (! pos.isNull() ? mapFromGlobal(pos) : pos);
 
   // remove window from window area
   if (! dragAll && tabBar_->count() > 1) {
@@ -1905,30 +2582,200 @@ detach(const QPoint &pos, bool dragAll)
     //--
 
     // detach
-    setParent(0, Qt::FramelessWindowHint);
+    if (floating)
+      setParent(0, Qt::FramelessWindowHint);
+    else
+      setParent(0, Qt::Window);
 
-    move(pos - lpos);
+    if (! pos.isNull())
+      move(pos - lpos);
+    else {
+      const QRect &screenRect = QApplication::desktop()->availableGeometry();
+
+      if (detachPos + width () >= screenRect.right () ||
+          detachPos + height() >= screenRect.bottom())
+        detachPos = 16;
+
+      move(detachPos, detachPos);
+
+      detachPos += 16;
+    }
 
     show();
 
     area_->replaceWindowArea(this, windowArea);
-
-    detached_ = true;
   }
   // detach whole window area
   else {
-    setParent(0, Qt::FramelessWindowHint);
+    if (floating)
+      setParent(0, Qt::FramelessWindowHint);
+    else
+      setParent(0, Qt::Window);
 
-    move(pos - lpos);
+    if (! pos.isNull())
+      move(pos - lpos);
+    else {
+      const QRect &screenRect = QApplication::desktop()->availableGeometry();
+
+      if (detachPos + width () >= screenRect.right () ||
+          detachPos + height() >= screenRect.bottom())
+        detachPos = 16;
+
+      move(detachPos, detachPos);
+
+      detachPos += 16;
+    }
 
     show();
 
-    area_->removeWindowArea(this);
+    area_->detachWindowArea(this);
 
-    detached_ = true;
+    area_->updateCurrentWindow();
   }
 }
 
+// attach window to area
+void
+CQTileWindowArea::
+attachSlot()
+{
+  if (isDocked())
+    return;
+
+  attach(false);
+}
+
+// initialize detach/attach animation data
+void
+CQTileWindowArea::
+initAttach()
+{
+  // save initially docked and placement state
+  attachData_.initDocked = isDocked();
+
+  if (attachData_.initDocked)
+    area()->saveState(attachData_.initState);
+}
+
+// cancel attach (restore to original placement)
+void
+CQTileWindowArea::
+cancelAttach()
+{
+  if (attachData_.initDocked) {
+    area()->restoreState(attachData_.initState);
+
+    setParent(area_);
+
+    show();
+
+    setDetached(false);
+    setFloating(false);
+
+    area_->updateTitles();
+  }
+
+  // hide rubber band and stop timer
+  area_->hideRubberBand();
+
+  attachData_.timer->stop();
+}
+
+// start animation preview (after window detached)
+void
+CQTileWindowArea::
+startAttachPreview()
+{
+  stopAttachPreview();
+
+  // save original state (but mark invalid so we don't reset unless we need to)
+  area()->saveState(attachData_.state);
+
+  attachData_.state.valid_ = false;
+
+  // no drop point set
+  attachData_.rect = QRect();
+  attachData_.side = CQTileArea::NO_SIDE;
+  attachData_.row1 = 0;
+  attachData_.col1 = 0;
+  attachData_.row2 = 0;
+  attachData_.col2 = 0;
+}
+
+// stop animation preview
+void
+CQTileWindowArea::
+stopAttachPreview()
+{
+  // restore to original detached state
+  if (attachData_.state.valid_) {
+    area()->restoreState(attachData_.state);
+
+    attachData_.state.valid_ = false;
+  }
+
+  // hide rubber band and stop timer
+  area()->hideRubberBand();
+
+  attachData_.timer->stop();
+}
+
+// perform detach/attach (delayed)
+void
+CQTileWindowArea::
+doAttachPreview()
+{
+  attachData_.timer->start(CQTileAreaConstants::attach_timeout);
+}
+
+// perform detach/attach
+void
+CQTileWindowArea::
+attachPreviewSlot()
+{
+  // if inside current highlight ignore
+  QPoint pos = QCursor::pos();
+
+  if (! attachData_.rect.isNull() && attachData_.rect.contains(pos))
+    return;
+
+  // restore placement
+  attachData_.state.valid_ = true;
+
+  area()->restoreState(attachData_.state);
+
+  // set highlight to current mouse position
+  area()->setHighlight(pos);
+
+  // if we have found a drop point use it
+  CQTileArea::Side side;
+  int              row1, col1, row2, col2;
+
+  if (area()->getHighlightPos(side, row1, col1, row2, col2)) {
+    // preview attached
+    attach(side, row1, col1, row2, col2, true);
+
+    QRect rect = area()->updateRubberBand();
+
+    // update state
+    attachData_.rect = rect;
+    attachData_.side = side;
+    attachData_.row1 = row1;
+    attachData_.col1 = col1;
+    attachData_.row2 = row2;
+    attachData_.col2 = col2;
+  }
+  else {
+    // keep detached
+    QRect rect = area()->updateRubberBand();
+
+    // update state
+    attachData_.rect = rect;
+    attachData_.side = CQTileArea::NO_SIDE;
+  }
+}
+
+// attach window to area at highlight position
 void
 CQTileWindowArea::
 attach(bool preview)
@@ -1937,49 +2784,97 @@ attach(bool preview)
   int              row1, col1, row2, col2;
 
   bool rc = area_->getHighlightPos(side, row1, col1, row2, col2);
-  assert(rc);
 
+  if (! rc) {
+    // TODO: where to reattach if detached via menu
+    side = CQTileArea::NO_SIDE;
+    row1 = 0; col1 = 0;
+    row2 = 0; col2 = 0;
+  }
+
+  attach(side, row1, col1, row2, col2, preview);
+}
+
+// attach window to area at specified position
+void
+CQTileWindowArea::
+attach(CQTileArea::Side side, int row1, int col1, int row2, int col2, bool preview)
+{
   if (! preview) {
     setParent(area_);
 
     show();
   }
 
+  //---
+
+  area_->setDefPlacementSize(stack_->width(), stack_->height());
+
+  //---
+
   CQTileWindowArea *attachArea = (! preview ? this : 0);
 
+  // add rows for top/bottom and add at specified row and column range
   if      (side == CQTileArea::TOP_SIDE || side == CQTileArea::BOTTOM_SIDE) {
     area_->insertRows(row1, 1);
 
     area_->addWindowArea(attachArea, row1, col1, 1, col2 - col1);
   }
+  // add columns for left/right and add at specified column and row range
   else if (side == CQTileArea::LEFT_SIDE || side == CQTileArea::RIGHT_SIDE) {
     area_->insertColumns(col1, 1);
 
     area_->addWindowArea(attachArea, row1, col1, row2 - row1, 1);
   }
-  else {
+  // add to existing area (only needs to update placement on actual (non-preview) action
+  else if (side == CQTileArea::MIDDLE_SIDE) {
     if (! preview) {
+      // get area to drop on
       CQTileWindowArea *area = area_->getAreaAt(row1, col1);
 
+      if (! area) { // assert ?
+        std::cerr << "no area at " << row1 << " " << col1 << std::endl;
+        return;
+      }
+
+      // determine tab index of last new window
       int ind = tabBar_->currentIndex() + area->tabBar_->count();
 
+      // add all window to drop area
       for (Windows::iterator p = windows_.begin(); p != windows_.end(); ++p)
         area->addWindow(*p);
 
+      // set tab
       area->tabBar_->setCurrentIndex(ind);
 
+      // delete this area
       area_->removeArea(this);
 
       deleteLater();
+
+      // update current area to drop area
+      area_->setCurrentArea(area);
     }
   }
+  // add to best position
+  else {
+    int row, col, nrows, ncols;
 
+    area_->calcBestWindowArea(row, col, nrows, ncols);
+
+    area_->addWindowArea(attachArea, row, col, nrows, ncols);
+  }
+
+  area_->setDefPlacementSize(-1, -1);
+
+  // update state
   if (! preview) {
-    detached_ = false;
-    floating_ = false;
+    setDetached(false);
+    setFloating(false);
   }
 }
 
+// reattach window (floating) to area (docked)
 void
 CQTileWindowArea::
 reattach()
@@ -1987,35 +2882,68 @@ reattach()
   setParent(area_);
 
   show();
-
-  //area_->restoreState();
 }
 
+// make floating (detach)
 void
 CQTileWindowArea::
-setFloating()
+setFloated()
 {
-  // set as standaline window
-
+  // set as standalone window
   setWindowFlags(Qt::Window);
 
-  if (! floating_) {
-    show();
+  show();
 
-    detached_ = false;
-    floating_ = true;
+  if (! floating_) {
+    setDetached(false);
+    setFloating(true);
   }
 }
 
+// update detached state
 void
 CQTileWindowArea::
-setMaximized(bool maximized)
+setDetached(bool detached)
 {
-  maximized_ = maximized;
+  detached_ = detached;
 
-  title_->setMaximized(maximized_);
+  updateTitle();
 }
 
+// update floating state
+void
+CQTileWindowArea::
+setFloating(bool floating)
+{
+  floating_ = floating;
+
+  updateTitle();
+}
+
+// update title bar
+void
+CQTileWindowArea::
+updateTitle()
+{
+  title_->updateState();
+
+  // if floating ensure we don't change geometry or it will screw up the drag
+  if (isFloating()) return;
+
+  bool titleVisible = true;
+
+  if (isDocked() && area_->isFullScreen() && windows_.size() == 1)
+    titleVisible = true;
+
+  title_->setVisible(titleVisible);
+
+  if (area_->isFullScreen())
+    setFrameStyle(QFrame::NoFrame | QFrame::Plain);
+  else
+    setFrameStyle(QFrame::Panel | QFrame::Raised);
+}
+
+// get current window
 CQTileWindow *
 CQTileWindowArea::
 currentWindow() const
@@ -2025,6 +2953,20 @@ currentWindow() const
   return qobject_cast<CQTileWindow *>(w);
 }
 
+// check if window is in this area
+bool
+CQTileWindowArea::
+hasWindow(CQTileWindow *window) const
+{
+  for (Windows::const_iterator p = windows_.begin(); p != windows_.end(); ++p) {
+    if (*p == window)
+      return true;
+  }
+
+  return false;
+}
+
+// set current window
 void
 CQTileWindowArea::
 setCurrentWindow(CQTileWindow *window)
@@ -2044,26 +2986,38 @@ setCurrentWindow(CQTileWindow *window)
   }
 }
 
+// called when tab changed
 void
 CQTileWindowArea::
 tabChangedSlot(int tabNum)
 {
+  // set stacked widget index from variant data
   int ind = tabBar_->tabData(tabNum).toInt();
 
   stack_->setCurrentIndex(ind);
 
+  // update title
   title_->update();
+
+  // notify window changed
+  area()->emitCurrentWindowChanged();
 }
 
+// tile windows
 void
 CQTileWindowArea::
-minimizeSlot()
+tileSlot()
 {
   CQTileArea *area = this->area();
 
+  CQTileWindow *window = currentWindow();
+
   area->tileWindows();
+
+  area->setCurrentWindow(window);
 }
 
+// maximize windows
 void
 CQTileWindowArea::
 maximizeSlot()
@@ -2077,33 +3031,95 @@ maximizeSlot()
   area->setCurrentWindow(window);
 }
 
+// restore windows
+void
+CQTileWindowArea::
+restoreSlot()
+{
+  CQTileArea *area = this->area();
+
+  CQTileWindow *window = currentWindow();
+
+  area->restoreWindows();
+
+  area->setCurrentWindow(window);
+}
+
+// close window
 void
 CQTileWindowArea::
 closeSlot()
 {
+  // close current window
+  CQTileWindow *window = currentWindow();
+
+  if (window)
+    area_->removeWindow(window);
 }
 
+// create context menu (for titlebar or tabbar)
+QMenu *
+CQTileWindowArea::
+createContextMenu(QWidget *parent) const
+{
+  QMenu *menu = new QMenu(parent);
+
+  QAction *detachAction   = menu->addAction("Detach");
+  QAction *attachAction   = menu->addAction("Attach");
+  QAction *maximizeAction = menu->addAction("Maximize");
+  QAction *restoreAction  = menu->addAction("Restore");
+  QAction *tileAction     = menu->addAction("Tile");
+  (void)                    menu->addSeparator();
+  QAction *closeAction    = menu->addAction("Close");
+
+  connect(detachAction  , SIGNAL(triggered()), this, SLOT(detachSlot()));
+  connect(attachAction  , SIGNAL(triggered()), this, SLOT(attachSlot()));
+  connect(maximizeAction, SIGNAL(triggered()), this, SLOT(maximizeSlot()));
+  connect(restoreAction , SIGNAL(triggered()), this, SLOT(restoreSlot()));
+  connect(tileAction    , SIGNAL(triggered()), this, SLOT(tileSlot()));
+  connect(closeAction   , SIGNAL(triggered()), this, SLOT(closeSlot()));
+
+  return menu;
+}
+
+// update menu to show only relevant items
 void
 CQTileWindowArea::
-paintEvent(QPaintEvent *e)
+updateContextMenu(QMenu *menu)
 {
-  //QPainter p(this);
-  //p.fillRect(rect(), QBrush(QColor(250,200,200)));
+  QList<QAction *> actions = menu->actions();
 
-  QFrame::paintEvent(e);
+  for (int i = 0; i < actions.size(); ++i) {
+    QAction *action = actions.at(i);
+
+    const QString &text = action->text();
+
+    if      (text == "Detach")
+      action->setVisible(  isDocked());
+    else if (text == "Attach")
+      action->setVisible(! isDocked());
+    else if (text == "Maximize")
+      action->setVisible(! isMaximized());
+    else if (text == "Restore")
+      action->setVisible(  isMaximized());
+  }
 }
 
 QSize
 CQTileWindowArea::
 sizeHint() const
 {
-  int w = stack_->sizeHint().width();
-  int h = title_->height() + stack_->sizeHint().height() + 4;
+  int w = 4;
+  int h = 4;
+
+  h += title_->height();
+
+  w  = std::max(w, stack_->sizeHint().width());
+  h += stack_->sizeHint().height();
 
   if (tabBar_->count() > 1) {
-    w = std::max(w, tabBar_->sizeHint().width());
-
-    h += tabBar_->height() + 4;
+    w  = std::max(w, tabBar_->sizeHint().width());
+    h += tabBar_->sizeHint().height();
   }
 
   return QSize(w, h);
@@ -2113,27 +3129,126 @@ QSize
 CQTileWindowArea::
 minimumSizeHint() const
 {
-  int w = title_->minimumSizeHint().width();
-  int h = title_->minimumSizeHint().height() + 4;
+  int w = 4;
+  int h = 4;
+
+  h += title_->height();
+
+  w  = std::max(w, title_->minimumSizeHint().width());
+  h += title_->minimumSizeHint().height();
+
+  if (tabBar_->count() > 1) {
+    w  = std::max(w, tabBar_->minimumSizeHint().width());
+    h += tabBar_->minimumSizeHint().height();
+  }
 
   return QSize(w, h);
 }
 
 //-------
 
+// create tabbar
+CQTileWindowTabBar::
+CQTileWindowTabBar(CQTileWindowArea *area) :
+ area_(area), contextMenu_(0)
+{
+  setObjectName("tabbar");
+
+  setShape(QTabBar::RoundedSouth);
+  setMovable(true);
+
+  setContextMenuPolicy(Qt::DefaultContextMenu);
+}
+
+// mouse press activates current window
+void
+CQTileWindowTabBar::
+mousePressEvent(QMouseEvent *e)
+{
+  area_->area()->setCurrentArea(area_);
+
+  QTabBar::mousePressEvent(e);
+}
+
+// display context menu
+void
+CQTileWindowTabBar::
+contextMenuEvent(QContextMenuEvent *e)
+{
+  if (! contextMenu_)
+    contextMenu_ = area_->createContextMenu(this);
+
+  area_->updateContextMenu(contextMenu_);
+
+  contextMenu_->popup(e->globalPos());
+
+  e->accept();
+}
+
+//------
+
+// create title bar
 CQTileWindowTitle::
 CQTileWindowTitle(CQTileWindowArea *area) :
- area_(area), maximized_(false)
+ area_(area), contextMenu_(0)
 {
-  minimizeButton_ = addButton(QPixmap(minimize_data));
+  // create detach/attach, maximize/restore and close button
+  // TODO: tile button
+  detachButton_   = addButton(QPixmap(detach_data  ));
   maximizeButton_ = addButton(QPixmap(maximize_data));
   closeButton_    = addButton(QPixmap(close_data   ));
 
-  connect(minimizeButton_, SIGNAL(clicked()), area, SLOT(minimizeSlot()));
-  connect(maximizeButton_, SIGNAL(clicked()), area, SLOT(maximizeSlot()));
+  connect(detachButton_  , SIGNAL(clicked()), this, SLOT(detachSlot()));
+  connect(maximizeButton_, SIGNAL(clicked()), this, SLOT(maximizeSlot()));
   connect(closeButton_   , SIGNAL(clicked()), area, SLOT(closeSlot()));
 
+  detachButton_  ->setToolTip("Detach");
+  maximizeButton_->setToolTip("Maximize");
+  closeButton_   ->setToolTip("Close");
+
+  // add hover for cursor update
   setAttribute(Qt::WA_Hover);
+
+  // enable context menu
+  setContextMenuPolicy(Qt::DefaultContextMenu);
+
+  // no focus (except when dragging)
+  setFocusPolicy(Qt::NoFocus);
+}
+
+// update from window state
+void
+CQTileWindowTitle::
+updateState()
+{
+  // update icon for detach/attach, maximize/restore buttons from state
+  maximizeButton_->setIcon(area_->isMaximized() ? QPixmap(restore_data) : QPixmap(maximize_data));
+  detachButton_  ->setIcon(! area_->isDocked () ? QPixmap(attach_data ) : QPixmap(detach_data  ));
+
+  maximizeButton_->setToolTip(area_->isMaximized() ? "Restore" : "Maximize");
+  detachButton_  ->setToolTip(! area_->isDocked () ? "Attach"  : "Detach"  );
+}
+
+// handle detach/attach
+void
+CQTileWindowTitle::
+detachSlot()
+{
+  if (! area_->isDocked())
+    area_->attachSlot();
+  else
+    area_->detachSlot();
+}
+
+// handle maximize/restore
+void
+CQTileWindowTitle::
+maximizeSlot()
+{
+  if (area_->isMaximized())
+    area_->restoreSlot();
+  else
+    area_->maximizeSlot();
 }
 
 QString
@@ -2150,60 +3265,96 @@ icon() const
   return area_->getIcon();
 }
 
-void
-CQTileWindowTitle::
-setMaximized(bool maximized)
-{
-  maximized_ = maximized;
-
-  maximizeButton_->setIcon(maximized_ ? QPixmap(restore_data) : QPixmap(maximize_data));
-}
-
 QColor
 CQTileWindowTitle::
 backgroundColor() const
 {
-  bool current = (area_ == area_->area()->currentArea());
+  CQTileArea *tileArea = area_->area();
 
-  return (! current ? QColor(160,160,160) : QColor(120,120,160));
+  bool current = (area_ == tileArea->currentArea());
+
+  return (current ? tileArea->titleActiveColor() : tileArea->titleInactiveColor());
 }
 
 QColor
 CQTileWindowTitle::
 barColor() const
 {
-  bool current = (area_ == area_->area()->currentArea());
+  CQTileArea *tileArea = area_->area();
 
-  return (! current ? QColor(120,120,120) : QColor(80,80,80));
+  bool current = (area_ == tileArea->currentArea());
+
+  return (current ? CQTileAreaConstants::bar_active_fg : CQTileAreaConstants::bar_inactive_fg);
 }
 
+// display context menu
+void
+CQTileWindowTitle::
+contextMenuEvent(QContextMenuEvent *e)
+{
+  assert(area_);
+
+  if (! contextMenu_)
+    contextMenu_ = area_->createContextMenu(this);
+
+  area_->updateContextMenu(contextMenu_);
+
+  contextMenu_->popup(e->globalPos());
+
+  e->accept();
+}
+
+// handle mouse press
 void
 CQTileWindowTitle::
 mousePressEvent(QMouseEvent *e)
 {
+  // init mouse state
+  mouseState_.reset();
+
   mouseState_.pressed  = true;
   mouseState_.pressPos = e->globalPos();
   mouseState_.dragAll  = (e->modifiers() & Qt::ShiftModifier);
 
-  if (CQTileAreaConstants::animated_preview)
-    area_->area()->saveState();
-
+  // ensure we are the current area
   area_->area()->setCurrentArea(area_);
+
+  // grab key focus
+  setFocusPolicy(Qt::StrongFocus);
+
+  // initialize attach data
+  area_->initAttach();
 }
 
+// handle mouse move
 void
 CQTileWindowTitle::
 mouseMoveEvent(QMouseEvent *e)
 {
+  // ignore if mouse not pressed or user escaped operation
   if (! mouseState_.pressed || mouseState_.escapePress) return;
 
-  if (! area_->isDetached() && ! area_->isFloating()) {
-    area_->detach(e->globalPos(), mouseState_.dragAll);
+  // if not moved yet ensure move far enough
+  if (! mouseState_.moved) {
+    if ((e->globalPos() - mouseState_.pressPos).manhattanLength() <
+         QApplication::startDragDistance())
+      return;
 
-    if (CQTileAreaConstants::animated_preview)
-      area_->area()->saveState();
+    if (area_->area()->animateDrag())
+      area_->startAttachPreview();
+
+    mouseState_.moved = true;
   }
 
+  // detach and start animate
+  if (area_->isDocked()) {
+    area_->detach(e->globalPos(), true, mouseState_.dragAll);
+
+    if (area_->area()->animateDrag())
+      area_->startAttachPreview();
+  }
+
+  // move detached window
   int dx = e->globalPos().x() - mouseState_.pressPos.x();
   int dy = e->globalPos().y() - mouseState_.pressPos.y();
 
@@ -2211,64 +3362,74 @@ mouseMoveEvent(QMouseEvent *e)
 
   mouseState_.pressPos = e->globalPos();
 
-  if (CQTileAreaConstants::animated_preview)
-    area_->area()->restoreState();
+  // show drop bound position (animated if needed)
+  if (area_->area()->animateDrag())
+    area_->doAttachPreview();
+  else
+    area_->area()->setHighlight(mouseState_.pressPos);
 
-  area_->area()->setHighlight(mouseState_.pressPos);
-
-  if (CQTileAreaConstants::animated_preview) {
-    CQTileArea::Side side;
-    int              row1, col1, row2, col2;
-
-    if (area_->area()->getHighlightPos(side, row1, col1, row2, col2))
-      area_->attach(true);
-
-    area_->area()->updateRubberBand();
-  }
-
+  // redraw
   area_->area()->update();
 }
 
+// handle mouse release
 void
 CQTileWindowTitle::
 mouseReleaseEvent(QMouseEvent *)
 {
-  if (CQTileAreaConstants::animated_preview) {
-    area_->area()->restoreState();
+  // stop animating
+  if (area_->area()->animateDrag())
+    area_->stopAttachPreview();
 
-    area_->area()->hideRubberBand();
-  }
-
+  // attach (if escape not pressed)
   if (! mouseState_.escapePress) {
     CQTileArea::Side side;
     int              row1, col1, row2, col2;
 
     if (area_->area()->getHighlightPos(side, row1, col1, row2, col2))
       area_->attach(false);
-  //else
-  //  area_->setFloating();
+    else {
+      if (mouseState_.moved)
+        area_->setFloated();
+    }
 
     area_->area()->clearHighlight();
   }
 
+  // reset state
   mouseState_.reset();
+
+  setFocusPolicy(Qt::NoFocus);
 }
 
+// double click maximizes/restores
+void
+CQTileWindowTitle::
+mouseDoubleClickEvent(QMouseEvent *)
+{
+  maximizeSlot();
+}
+
+// handle key press (escape cancel)
+// TODO: other shortcuts
 void
 CQTileWindowTitle::
 keyPressEvent(QKeyEvent *e)
 {
   if (e->key() == Qt::Key_Escape) {
-    if (mouseState_.pressed && area_->isDetached()) {
+    if (mouseState_.pressed && ! area_->isDocked()) {
       area_->reattach();
 
       mouseState_.escapePress = true;
+
+      area_->cancelAttach();
 
       area_->area()->clearHighlight();
     }
   }
 }
 
+// uddate cursor
 bool
 CQTileWindowTitle::
 event(QEvent *e)
@@ -2289,21 +3450,374 @@ event(QEvent *e)
 
 //-------
 
+// create window
 CQTileWindow::
-CQTileWindow() :
- w_(0)
+CQTileWindow(CQTileWindowArea *area) :
+ area_(area), w_(0)
 {
   setObjectName("window");
 
+  setAutoFillBackground(true);
+
   QVBoxLayout *layout = new QVBoxLayout(this);
   layout->setMargin(0); layout->setSpacing(0);
+
+  // monitor focus changed
+  // TODO: use single focus change monitor
+  connect(qApp, SIGNAL(focusChanged(QWidget*,QWidget*)),
+          this, SLOT(focusChangedSlot(QWidget*,QWidget*)));
 }
 
+CQTileWindow::
+~CQTileWindow()
+{
+}
+
+// set window widget (view)
 void
 CQTileWindow::
 setWidget(QWidget *w)
 {
-  w_ = w;
+  if (w_)
+    disconnect(w_, SIGNAL(destroyed(QObject *)), this, SLOT(widgetDestroyed()));
+
+  w_     = w;
+  valid_ = true;
+
+  if (w_)
+    connect(w_, SIGNAL(destroyed(QObject *)), this, SLOT(widgetDestroyed()));
 
   layout()->addWidget(w);
+}
+
+// set window parent area
+void
+CQTileWindow::
+setArea(CQTileWindowArea *area)
+{
+  area_ = area;
+}
+
+// get window title from widget (view)
+QString
+CQTileWindow::
+getTitle() const
+{
+  return (w_ ? w_->windowTitle() : "");
+}
+
+// get window icon from widget (view)
+QIcon
+CQTileWindow::
+getIcon() const
+{
+  return (w_ ? w_->windowIcon() : QIcon());
+}
+
+// if focus changed to child then make this the current window
+void
+CQTileWindow::
+focusChangedSlot(QWidget * /*old*/, QWidget *now)
+{
+  if (now && (now == this || isAncestorOf(now)))
+    area_->area()->setCurrentWindow(this);
+}
+
+void
+CQTileWindow::
+widgetDestroyed()
+{
+  valid_ = false;
+
+  area_->area()->removeWindow(this);
+}
+
+// update cursor
+bool
+CQTileWindow::
+event(QEvent *e)
+{
+  if      (e->type() == QEvent::WindowTitleChange) {
+    if (w_ && valid_) w_->setWindowTitle(windowTitle());
+  }
+  else if (e->type() == QEvent::WindowIconChange) {
+    if (w_ && valid_) w_->setWindowIcon(windowIcon());
+  }
+
+  return QWidget::event(e);
+}
+
+void
+CQTileWindow::
+closeEvent(QCloseEvent *closeEvent)
+{
+  bool acceptClose = true;
+
+  if (w_)
+    acceptClose = w_->close();
+
+  if (! acceptClose) {
+    closeEvent->ignore();
+    return;
+  }
+
+  if (parentWidget() && testAttribute(Qt::WA_DeleteOnClose)) {
+    QChildEvent childRemoved(QEvent::ChildRemoved, this);
+
+    QApplication::sendEvent(parentWidget(), &childRemoved);
+  }
+
+  closeEvent->accept();
+}
+
+//------
+
+namespace CQWidgetUtil {
+  QSize SmartMinSize(const QSize &sizeHint, const QSize &minSizeHint,
+                     const QSize &minSize, const QSize &maxSize,
+                     const QSizePolicy &sizePolicy) {
+    QSize s(0, 0);
+
+    if (sizePolicy.horizontalPolicy() != QSizePolicy::Ignored) {
+      if (sizePolicy.horizontalPolicy() & QSizePolicy::ShrinkFlag)
+        s.setWidth(minSizeHint.width());
+      else
+        s.setWidth(qMax(sizeHint.width(), minSizeHint.width()));
+    }
+
+    if (sizePolicy.verticalPolicy() != QSizePolicy::Ignored) {
+      if (sizePolicy.verticalPolicy() & QSizePolicy::ShrinkFlag) {
+        s.setHeight(minSizeHint.height());
+      } else {
+        s.setHeight(qMax(sizeHint.height(), minSizeHint.height()));
+      }
+    }
+
+    s = s.boundedTo(maxSize);
+
+    if (minSize.width() > 0)
+      s.setWidth(minSize.width());
+    if (minSize.height() > 0)
+      s.setHeight(minSize.height());
+
+    return s.expandedTo(QSize(0,0));
+  }
+
+  QSize SmartMinSize(const QWidget *w) {
+    return SmartMinSize(w->sizeHint(), w->minimumSizeHint(),
+                        w->minimumSize(), w->maximumSize(),
+                        w->sizePolicy());
+  }
+}
+
+CQTileStackedWidget::
+CQTileStackedWidget(CQTileWindowArea *area) :
+ QWidget(area), area_(area), currentIndex_(-1)
+{
+  setObjectName("stack");
+}
+
+int
+CQTileStackedWidget::
+addWidget(QWidget *widget)
+{
+  return insertWidget(count(), widget);
+}
+
+int
+CQTileStackedWidget::
+insertWidget(int index, QWidget *widget)
+{
+  if (index < 0 || index > count())
+    index = count();
+
+  QWidget *current = currentWidget();
+
+  widget->setParent(this);
+
+  widget->setVisible(true);
+
+  widgets_.push_back(0);
+
+  for (int i = count() - 1; i > index && i > 0; --i)
+    widgets_[i] = widgets_[i - 1];
+
+  widgets_[index] = widget;
+
+  if (currentIndex() == -1)
+    setCurrentIndex(0);
+  else
+    setCurrentIndex(indexOf(current));
+
+  return index;
+}
+
+void
+CQTileStackedWidget::
+removeWidget(QWidget *widget)
+{
+  QWidget *current = currentWidget();
+
+  if (current == widget)
+    current = 0;
+
+  int ind = indexOf(widget);
+
+  if (ind == -1)
+    return;
+
+  for (int i = ind; i < count() - 1; ++i)
+    widgets_[i] = widgets_[i + 1];
+
+  widgets_.pop_back();
+
+  setCurrentIndex(indexOf(current));
+
+  emit widgetRemoved(ind);
+}
+
+QWidget *
+CQTileStackedWidget::
+currentWidget() const
+{
+  if (currentIndex() >= 0 && currentIndex() < count())
+    return widgets_[currentIndex()];
+  else
+    return 0;
+}
+
+int
+CQTileStackedWidget::
+currentIndex() const
+{
+  return currentIndex_;
+}
+
+int
+CQTileStackedWidget::
+indexOf(QWidget *widget) const
+{
+  if (! widget) return -1;
+
+  for (int i = 0; i < count(); ++i)
+    if (widgets_[i] == widget)
+      return i;
+
+  return -1;
+}
+
+QWidget *
+CQTileStackedWidget::
+widget(int index) const
+{
+  if (index >= 0 && index < count())
+    return widgets_[index];
+
+  return 0;
+}
+
+int
+CQTileStackedWidget::
+count() const
+{
+  return widgets_.size();
+}
+
+void
+CQTileStackedWidget::
+setCurrentWidget(QWidget *widget)
+{
+  int ind = indexOf(widget);
+
+  if (ind == -1)
+    return;
+
+  setCurrentIndex(ind);
+}
+
+void
+CQTileStackedWidget::
+setCurrentIndex(int index)
+{
+  if (index < -1 || index >= count())
+    return;
+
+  if (index == currentIndex())
+    return;
+
+  currentIndex_ = index;
+
+  updateLayout();
+
+  emit currentChanged(currentIndex());
+}
+
+void
+CQTileStackedWidget::
+showEvent(QShowEvent *)
+{
+  updateLayout();
+}
+
+void
+CQTileStackedWidget::
+resizeEvent(QResizeEvent *)
+{
+  updateLayout();
+}
+
+void
+CQTileStackedWidget::
+updateLayout()
+{
+  QWidget *current = currentWidget();
+
+  if (current) {
+    current->move(0, 0);
+    current->resize(width(), height());
+
+    current->setVisible(true);
+    current->raise();
+  }
+}
+
+QSize
+CQTileStackedWidget::
+sizeHint() const
+{
+  QSize s = QApplication::globalStrut();
+
+  for (int i = 0; i < count(); ++i) {
+    QWidget *w = widgets_[i];
+
+    if (w) {
+      QSize s1 = w->sizeHint();
+
+      if (w->sizePolicy().horizontalPolicy() == QSizePolicy::Ignored) s1.setWidth (0);
+      if (w->sizePolicy().verticalPolicy  () == QSizePolicy::Ignored) s1.setHeight(0);
+
+      s = s.expandedTo(s1);
+    }
+  }
+
+  return s;
+}
+
+QSize
+CQTileStackedWidget::
+minimumSizeHint() const
+{
+  QSize s = QApplication::globalStrut();
+
+  for (int i = 0; i < count(); ++i) {
+    QWidget *w = widgets_[i];
+
+    if (w) {
+      QSize s1 = CQWidgetUtil::SmartMinSize(w);
+
+      s = s.expandedTo(s1);
+    }
+  }
+
+  return s;
 }
