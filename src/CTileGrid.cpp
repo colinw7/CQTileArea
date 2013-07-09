@@ -15,6 +15,8 @@ insertRows(int row, int nrows)
 
   setSize(nrows1, ncols1);
 
+  clear();
+
   // populate new grid with old either side of the new rows
   for (int r = 0; r < nrows1; ++r) {
     for (int c = 0; c < ncols1; ++c) {
@@ -24,8 +26,6 @@ insertRows(int row, int nrows)
         pc = grid.cell(r, c);
       else if (r > row)
         pc = grid.cell(r - nrows, c);
-      else
-        pc = -1;
     }
   }
 
@@ -52,7 +52,9 @@ insertColumns(int col, int ncols)
 
   setSize(nrows1, ncols1);
 
-  // populate new grid with old either side of the new colums
+  clear();
+
+  // populate new grid with old either side of the new columns
   for (int r = 0; r < nrows1; ++r) {
     for (int c = 0; c < ncols1; ++c) {
       int &pc = cell(r, c);
@@ -61,8 +63,6 @@ insertColumns(int col, int ncols)
         pc = grid.cell(r, c);
       else if (c > col)
         pc = grid.cell(r, c - ncols);
-      else
-        pc = -1;
     }
   }
 
@@ -309,12 +309,12 @@ isValid() const
   return true;
 }
 
-// get region for spcified id
+// get region for specified id
 bool
 CTileGrid::
 getRegion(int id, int r1, int c1, int *nr, int *nc)
 {
-  // get extent (nrow,ncols) of area with specified id
+  // get extent (nrows,ncols) of area with specified id
   int r2 = r1;
   int c2 = c1;
 

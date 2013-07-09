@@ -142,7 +142,7 @@ class CQTileArea : public QWidget {
   QColor titleActiveColor   () const { return titleActiveColor_; }
   void   setTitleActiveColor(const QColor &color);
 
-  //! get/set title intactive color
+  //! get/set title inactive color
   QColor titleInactiveColor   () const { return titleInactiveColor_; }
   void   setTitleInactiveColor(const QColor &color);
 
@@ -210,7 +210,7 @@ class CQTileArea : public QWidget {
   void updateCurrentWindow();
 
   //! update placement from grid
-  void updatePlacement();
+  void updatePlacement(bool useExisting=true);
 
   //! fill empty cells with surrounding non-empty cells
   void fillEmptyCells();
@@ -219,7 +219,7 @@ class CQTileArea : public QWidget {
   void removeDuplicateCells();
 
   //! update placement from grid
-  void gridToPlacement();
+  void gridToPlacement(bool useExisting=true);
 
   //! add splitters between cells
   void addSplitters();
@@ -229,7 +229,7 @@ class CQTileArea : public QWidget {
 
   //! update all placement geometries
   void updatePlacementGeometries();
-  //! update specfied placement geometry
+  //! update specified placement geometry
   void updatePlacementGeometry(PlacementArea &placementArea);
 
   //! check for intersect or vertical and horizontal splitters
@@ -244,9 +244,9 @@ class CQTileArea : public QWidget {
   void adjustToFit();
 
   //! adjust placements which must have same width to match splitters
-  void adjustSameWidthPlacements (const PlacementArea &area);
+  void adjustSameWidthPlacements (PlacementArea &area);
   //! adjust placements which must have same height to match splitters
-  void adjustSameHeightPlacements(const PlacementArea &area);
+  void adjustSameHeightPlacements(PlacementArea &area);
 
   //! update titles
   void updateTitles();
@@ -272,7 +272,7 @@ class CQTileArea : public QWidget {
   //! is maximized
   bool isMaximized() const;
 
-  //! get window area for windoe
+  //! get window area for window
   CQTileWindowArea *getWindowArea(CQTileWindow *window) const;
 
   //! emit current window changed signal
@@ -426,7 +426,7 @@ class CQTileWindowArea : public QFrame {
   //! is currently docked
   bool isDocked  () const { return ! isDetached() && ! isFloating(); }
 
-  //! get titlw
+  //! get title
   QString getTitle() const;
 
   //! get icon
@@ -662,7 +662,7 @@ class CQTileWindowTitle : public CQTitleBar {
   //! handle double click (expand)
   void mouseDoubleClickEvent(QMouseEvent *e);
 
-  //! handle key perss (escape)
+  //! handle key press (escape)
   void keyPressEvent(QKeyEvent *e);
 
   //! display context menu

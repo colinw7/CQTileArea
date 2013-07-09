@@ -65,7 +65,7 @@ class CTileGrid {
   }
 
   //! clear to index
-  void clear(int ind=0) {
+  void clear(int ind=-1) {
     for (int i = 0; i < nrows_*ncols_; ++i)
       cells_[i] = ind;
   }
