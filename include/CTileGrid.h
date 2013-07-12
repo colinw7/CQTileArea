@@ -56,7 +56,7 @@ class CTileGrid {
   //! is single cell
   bool isSingleCell() const { return cells_.size() == 1; }
 
-  //! get old index with new index
+  //! replace old index with new index
   void replace(int oldId, int newId) {
     for (int i = 0; i < nrows_*ncols_; ++i) {
       if (cells_[i] == oldId)

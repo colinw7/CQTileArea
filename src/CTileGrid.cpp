@@ -106,7 +106,7 @@ fillEmptyCells()
     int id = cell(r, c);
 
     // get empty cell region
-    int nr, nc;
+    int nr = 1, nc = 1;
 
     getRegion(id, r, c, &nr, &nc);
 

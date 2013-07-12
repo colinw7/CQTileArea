@@ -46,12 +46,12 @@ class CQTileArea : public QWidget {
 
   //! structure to store physical placement area of area
   struct PlacementArea {
-    int               row, col;      //! row, column
-    int               nrows, ncols;  //! number of rows/columns
-    CQTileWindowArea *area;          //! associated area (can be NULL)
-    Windows           windows;       //! associated area windows (used for saving)
-    int               x, y;          //! position
-    int               width, height; //! size
+    int     row, col;      //! row, column
+    int     nrows, ncols;  //! number of rows/columns
+    int     areaId;        //! associated area (can be invalid (<= 0))
+    Windows windows;       //! associated area windows (used for saving)
+    int     x, y;          //! position
+    int     width, height; //! size
 
     int row1() const { return row        ; }
     int col1() const { return col        ; }
@@ -66,12 +66,12 @@ class CQTileArea : public QWidget {
     int xm() const { return x + width /2; }
     int ym() const { return y + height/2; }
 
-    void place(int r, int c, int nr, int nc, CQTileWindowArea *a) {
+    void place(int r, int c, int nr, int nc, int id) {
       row    = r;
       col    = c;
       nrows  = nr;
       ncols  = nc;
-      area   = a;
+      areaId = id;
       x      = col*100;
       y      = row*100;
       width  = 100*nc;
@@ -115,6 +115,7 @@ class CQTileArea : public QWidget {
   typedef std::map<int,VSplitterArray>     ColVSplitterArray;
   typedef std::pair<int,int>               SplitterInd;
 
+ public:
   //! structure for (saved) placement state
   struct PlacementState {
     bool              valid_;          //! is valid
@@ -133,6 +134,9 @@ class CQTileArea : public QWidget {
  public:
   //! create tile area
   CQTileArea();
+
+  //! destroy tile area
+ ~CQTileArea();
 
   //! get/set splitter size
   int  splitterSize() const { return splitterSize_; }
@@ -319,6 +323,9 @@ class CQTileArea : public QWidget {
   //! set default placement size (size of empty cell)
   void setDefPlacementSize(int w, int h);
 
+  //! get area for placement area id
+  CQTileWindowArea *getAreaForId(int areaId) const;
+
   //! get size hint
   QSize sizeHint() const;
   //! get minimum size hint
@@ -420,11 +427,13 @@ class CQTileWindowArea : public QFrame {
   CQTileWindow *addWidget(QWidget *w);
 
   //! is currently detached
-  bool isDetached() const { return detached_; }
+  bool isDetached () const { return detached_; }
   //! is currently floating
-  bool isFloating() const { return floating_; }
+  bool isFloating () const { return floating_; }
   //! is currently docked
-  bool isDocked  () const { return ! isDetached() && ! isFloating(); }
+  bool isDocked   () const { return ! isDetached() && ! isFloating(); }
+  //! is currently maximized
+  bool isMaximized() const;
 
   //! get title
   QString getTitle() const;
@@ -489,7 +498,7 @@ class CQTileWindowArea : public QFrame {
   QMenu *createContextMenu(QWidget *parent) const;
 
   //! update context menu
-  void updateContextMenu(QMenu *menu);
+  void updateContextMenu(QMenu *menu) const;
 
  public slots:
   //! detach

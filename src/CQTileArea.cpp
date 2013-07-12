@@ -64,6 +64,12 @@ CQTileArea() :
   rubberBand_->hide();
 }
 
+CQTileArea::
+~CQTileArea()
+{
+  delete rubberBand_;
+}
+
 // set title bar active color
 void
 CQTileArea::
@@ -246,8 +252,8 @@ removeArea(CQTileWindowArea *area)
   for (int i = 0; i < np; ++i) {
     PlacementArea &placementArea = placementAreas_[i];
 
-    if (placementArea.area == area)
-      placementArea.area = 0;
+    if (placementArea.areaId == area->id())
+      placementArea.areaId = 0;
   }
 
   // if current area then set new current
@@ -396,14 +402,14 @@ void
 CQTileArea::
 replaceWindowArea(CQTileWindowArea *oldArea, CQTileWindowArea *newArea)
 {
-  // reset cells for this window area to zero
+  // reset cells of old area to new area
   grid_.replace(oldArea->id(), newArea->id());
 
   int pid = getPlacementAreaIndex(oldArea->id());
 
   PlacementArea &placementArea = placementAreas_[pid];
 
-  placementArea.area = newArea;
+  placementArea.areaId = newArea->id();
 
   updatePlacementGeometry(placementArea);
 }
@@ -503,17 +509,17 @@ gridToPlacement(bool useExisting)
       // clear cells with this id
       grid.fill(r, c, r2, c2, -2);
 
-      // get area
-      CQTileWindowArea *area = 0;
+      // get area id
+      int areaId = 0;
 
       if (id > 0) {
-        WindowAreas::const_iterator p = areas_.find(id);
+        CQTileWindowArea *area = getAreaForId(id);
 
-        if (p != areas_.end())
-          area = (*p).second;
+        if (area)
+          areaId = area->id();
         else {
           std::cerr << "Invalid Area Id " << id << std::endl;
-          // assert(false);
+          //assert(false);
           continue;
         }
       }
@@ -521,7 +527,7 @@ gridToPlacement(bool useExisting)
       // create placement area for this area
       PlacementArea placementArea;
 
-      placementArea.place(r, c, nr, nc, area);
+      placementArea.place(r, c, nr, nc, areaId);
 
       // use original size if possible
       if (useExisting) {
@@ -713,7 +719,7 @@ void
 CQTileArea::
 updatePlacementGeometry(PlacementArea &placementArea)
 {
-  CQTileWindowArea *area = placementArea.area;
+  CQTileWindowArea *area = getAreaForId(placementArea.areaId);
 
   if (area) {
     area->setParent(this);
@@ -783,7 +789,7 @@ addHSplitter(int i, int row, bool top)
   hsplitters_[row].push_back(splitter);
 }
 
-// add vertical splitter to placement area columns
+// add vertical splitter to placement area column
 void
 CQTileArea::
 addVSplitter(int i, int col, bool left)
@@ -951,7 +957,7 @@ adjustToFit()
       while (i2 < pids.size() && ! sized[pids[i2]])
         ++i2;
 
-      int ns = i2 - i1;
+      int ns = std::max(i2 - i1, 1U);
 
       //---
 
@@ -978,8 +984,10 @@ adjustToFit()
       for (uint i = i1; i < i2; ++i) {
         PlacementArea &placementArea = placementAreas_[pids[i]];
 
-        int min_size = (placementArea.area ?
-          placementArea.area->minimumSizeHint().width() : CQTileAreaConstants::min_size + ss);
+        CQTileWindowArea *area = getAreaForId(placementArea.areaId);
+
+        int min_size = (area ? area->minimumSizeHint().width() :
+                               CQTileAreaConstants::min_size + ss);
 
         if (placementArea.width + dw < min_size)
           reset = true;
@@ -1073,7 +1081,7 @@ adjustToFit()
       while (i2 < pids.size() && ! sized[pids[i2]])
         ++i2;
 
-      int ns = i2 - i1;
+      int ns = std::max(i2 - i1, 1U);
 
       //---
 
@@ -1100,8 +1108,10 @@ adjustToFit()
       for (uint i = i1; i < i2; ++i) {
         PlacementArea &placementArea = placementAreas_[pids[i]];
 
-        int min_size = (placementArea.area ?
-          placementArea.area->minimumSizeHint().height() : CQTileAreaConstants::min_size + ss);
+        CQTileWindowArea *area = getAreaForId(placementArea.areaId);
+
+        int min_size = (area ? area->minimumSizeHint().height() :
+                               CQTileAreaConstants::min_size + ss);
 
         if (placementArea.height + dh < min_size)
           reset = true;
@@ -1426,10 +1436,7 @@ getPlacementAreaIndex(const PlacementAreas &placementAreas, int id) const
     const PlacementArea &placementArea = placementAreas[i];
 
     // check for id match of area
-    if      (placementArea.area && placementArea.area->id() == id)
-      return i;
-    // zero id matches empty area
-    else if (! placementArea.area && ! id)
+    if (placementArea.areaId == id)
       return i;
   }
 
@@ -1446,7 +1453,7 @@ getAreaAt(int row, int col) const
   int ind = getPlacementAreaIndex(cell);
 
   if (ind >= 0)
-    return placementAreas_[ind].area;
+    return getAreaForId(placementAreas_[ind].areaId);
   else
     return 0;
 }
@@ -1520,7 +1527,7 @@ getHSplitterRect(const HSplitter &splitter) const
 
   int x1 = INT_MAX, x2 = INT_MIN, yt = INT_MIN, yb = INT_MAX;
 
-  for (AreaSet::iterator pt = splitter.tareas.begin(); pt != splitter.tareas.end(); ++pt) {
+  for (AreaSet::const_iterator pt = splitter.tareas.begin(); pt != splitter.tareas.end(); ++pt) {
     int area = *pt;
 
     const PlacementArea &placementArea = placementAreas_[area];
@@ -1531,7 +1538,7 @@ getHSplitterRect(const HSplitter &splitter) const
     x2 = std::max(x2, placementArea.x2());
   }
 
-  for (AreaSet::iterator pb = splitter.bareas.begin(); pb != splitter.bareas.end(); ++pb) {
+  for (AreaSet::const_iterator pb = splitter.bareas.begin(); pb != splitter.bareas.end(); ++pb) {
     int area = *pb;
 
     const PlacementArea &placementArea = placementAreas_[area];
@@ -1548,7 +1555,7 @@ getHSplitterRect(const HSplitter &splitter) const
   return QRect(x1, (yt + yb)/2 - ss/2, x2 - x1, ss);
 }
 
-// get bounding box of horizontal specified splitter
+// get bounding box of vertical specified splitter
 QRect
 CQTileArea::
 getVSplitterRect(const VSplitter &splitter) const
@@ -1557,7 +1564,7 @@ getVSplitterRect(const VSplitter &splitter) const
 
   int y1 = INT_MAX, y2 = INT_MIN, xl = INT_MIN, xr = INT_MAX;
 
-  for (AreaSet::iterator pl = splitter.lareas.begin(); pl != splitter.lareas.end(); ++pl) {
+  for (AreaSet::const_iterator pl = splitter.lareas.begin(); pl != splitter.lareas.end(); ++pl) {
     int area = *pl;
 
     const PlacementArea &placementArea = placementAreas_[area];
@@ -1568,7 +1575,7 @@ getVSplitterRect(const VSplitter &splitter) const
     y2 = std::max(y2, placementArea.y2());
   }
 
-  for (AreaSet::iterator pr = splitter.rareas.begin(); pr != splitter.rareas.end(); ++pr) {
+  for (AreaSet::const_iterator pr = splitter.rareas.begin(); pr != splitter.rareas.end(); ++pr) {
     int area = *pr;
 
     const PlacementArea &placementArea = placementAreas_[area];
@@ -1654,7 +1661,7 @@ restoreWindows()
 
   saveState(maximizeState_, false);
 
-  restoreState(maximizeState_);
+  restoreState(newState);
 }
 
 // tile all windows
@@ -1722,6 +1729,8 @@ tileWindows()
     else
       windowArea = window->area();
 
+    //---
+
     grid_.cell(r, c) = windowArea->id();
 
     ++c;
@@ -1750,7 +1759,7 @@ void
 CQTileArea::
 showEvent(QShowEvent *)
 {
-  updatePlacement();
+  updatePlacement(false);
 }
 
 // update placement sizes on resize
@@ -1923,24 +1932,28 @@ mouseMoveEvent(QMouseEvent *e)
 
       // limit dy
       for (AreaSet::iterator pt = splitter.tareas.begin(); pt != splitter.tareas.end(); ++pt) {
-        int area = *pt;
+        int pid = *pt;
 
-        PlacementArea &placementArea = placementAreas_[area];
+        PlacementArea &placementArea = placementAreas_[pid];
 
-        int min_size = (placementArea.area ?
-          placementArea.area->minimumSizeHint().height() : CQTileAreaConstants::min_size);
+        CQTileWindowArea *area = getAreaForId(placementArea.areaId);
+
+        int min_size = (area ? area->minimumSizeHint().height() :
+                               CQTileAreaConstants::min_size);
 
         if (dy < 0 && placementArea.height + dy <= min_size)
           dy = min_size - placementArea.height;
       }
 
       for (AreaSet::iterator pb = splitter.bareas.begin(); pb != splitter.bareas.end(); ++pb) {
-        int area = *pb;
+        int pid = *pb;
 
-        PlacementArea &placementArea = placementAreas_[area];
+        PlacementArea &placementArea = placementAreas_[pid];
 
-        int min_size = (placementArea.area ?
-          placementArea.area->minimumSizeHint().height() : CQTileAreaConstants::min_size);
+        CQTileWindowArea *area = getAreaForId(placementArea.areaId);
+
+        int min_size = (area ? area->minimumSizeHint().height() :
+                               CQTileAreaConstants::min_size);
 
         if (dy > 0 && placementArea.height - dy <= min_size)
           dy = placementArea.height - min_size;
@@ -1948,9 +1961,9 @@ mouseMoveEvent(QMouseEvent *e)
 
       // apply dy to placement areas
       for (AreaSet::iterator pt = splitter.tareas.begin(); pt != splitter.tareas.end(); ++pt) {
-        int area = *pt;
+        int pid = *pt;
 
-        PlacementArea &placementArea = placementAreas_[area];
+        PlacementArea &placementArea = placementAreas_[pid];
 
         placementArea.height += dy;
 
@@ -1958,9 +1971,9 @@ mouseMoveEvent(QMouseEvent *e)
       }
 
       for (AreaSet::iterator pb = splitter.bareas.begin(); pb != splitter.bareas.end(); ++pb) {
-        int area = *pb;
+        int pid = *pb;
 
-        PlacementArea &placementArea = placementAreas_[area];
+        PlacementArea &placementArea = placementAreas_[pid];
 
         placementArea.y      += dy;
         placementArea.height -= dy;
@@ -1976,24 +1989,28 @@ mouseMoveEvent(QMouseEvent *e)
 
       // limit dx
       for (AreaSet::iterator pl = splitter.lareas.begin(); pl != splitter.lareas.end(); ++pl) {
-        int area = *pl;
+        int pid = *pl;
 
-        PlacementArea &placementArea = placementAreas_[area];
+        PlacementArea &placementArea = placementAreas_[pid];
 
-        int min_size = (placementArea.area ?
-          placementArea.area->minimumSizeHint().width() : CQTileAreaConstants::min_size);
+        CQTileWindowArea *area = getAreaForId(placementArea.areaId);
+
+        int min_size = (area ? area->minimumSizeHint().width() :
+                               CQTileAreaConstants::min_size);
 
         if (dx < 0 && placementArea.width + dx <= min_size)
           dx = min_size - placementArea.width;
       }
 
       for (AreaSet::iterator pr = splitter.rareas.begin(); pr != splitter.rareas.end(); ++pr) {
-        int area = *pr;
+        int pid = *pr;
 
-        PlacementArea &placementArea = placementAreas_[area];
+        PlacementArea &placementArea = placementAreas_[pid];
 
-        int min_size = (placementArea.area ?
-          placementArea.area->minimumSizeHint().width() : CQTileAreaConstants::min_size);
+        CQTileWindowArea *area = getAreaForId(placementArea.areaId);
+
+        int min_size = (area ? area->minimumSizeHint().width() :
+                               CQTileAreaConstants::min_size);
 
         if (dx > 0 && placementArea.width - dx <= min_size)
           dx = placementArea.width - min_size;
@@ -2001,9 +2018,9 @@ mouseMoveEvent(QMouseEvent *e)
 
       // apply dx to placement areas
       for (AreaSet::iterator pl = splitter.lareas.begin(); pl != splitter.lareas.end(); ++pl) {
-        int area = *pl;
+        int pid = *pl;
 
-        PlacementArea &placementArea = placementAreas_[area];
+        PlacementArea &placementArea = placementAreas_[pid];
 
         placementArea.width += dx;
 
@@ -2011,9 +2028,9 @@ mouseMoveEvent(QMouseEvent *e)
       }
 
       for (AreaSet::iterator pr = splitter.rareas.begin(); pr != splitter.rareas.end(); ++pr) {
-        int area = *pr;
+        int pid = *pr;
 
-        PlacementArea &placementArea = placementAreas_[area];
+        PlacementArea &placementArea = placementAreas_[pid];
 
         placementArea.x     += dx;
         placementArea.width -= dx;
@@ -2285,7 +2302,8 @@ saveState(PlacementState &state, bool transient)
   // need to save the windows for each area
   if (! transient) {
     for (uint i = 0; i < placementAreas_.size(); ++i) {
-      CQTileWindowArea *area = placementAreas_[i].area;
+      CQTileWindowArea *area = getAreaForId(placementAreas_[i].areaId);
+      assert(area);
 
       const CQTileWindowArea::Windows &areaWindows = area->getWindows();
 
@@ -2318,7 +2336,7 @@ restoreState(const PlacementState &state)
       for (Windows::iterator p = area.windows.begin(); p != area.windows.end(); ++p)
         (*p)->setParent(this);
 
-      if (area.area == currentArea_)
+      if (area.areaId == currentArea_->id())
         currentAreaInd = i;
     }
 
@@ -2340,10 +2358,10 @@ restoreState(const PlacementState &state)
         newArea->addWindow(*p);
 
       // replace old id in grid with new id
-      grid_.replace(placementAreas_[i].area->id(), newArea->id());
+      grid_.replace(placementAreas_[i].areaId, newArea->id());
 
       // update placement area id
-      placementAreas_[i].area = newArea;
+      placementAreas_[i].areaId = newArea->id();
 
       // update current area
       if (int(i) == currentAreaInd)
@@ -2365,6 +2383,18 @@ restoreState(const PlacementState &state)
 
   // update widgets to new sizes
   updatePlacementGeometries();
+}
+
+CQTileWindowArea *
+CQTileArea::
+getAreaForId(int areaId) const
+{
+  WindowAreas::const_iterator p = areas_.find(areaId);
+
+  if (p != areas_.end())
+    return (*p).second;
+  else
+    return 0;
 }
 
 void
@@ -2433,12 +2463,15 @@ sizeHint() const
     if (pid < 0) continue;
 
     const PlacementArea &placementArea = placementAreas_[pid];
-    if (! placementArea.area) continue;
+    if (! placementArea.areaId) continue;
+
+    CQTileWindowArea *area = getAreaForId(placementArea.areaId);
+    if (! area) continue;
 
     int r = ci / grid_.ncols();
     int c = ci % grid_.ncols();
 
-    QSize s = placementArea.area->sizeHint();
+    QSize s = area->sizeHint();
 
     widths [c] = std::max(widths [c], s.width ()/placementArea.ncols);
     heights[r] = std::max(heights[r], s.height()/placementArea.nrows);
@@ -2577,6 +2610,14 @@ removeWindow(CQTileWindow *window)
   return windows_.empty();
 }
 
+// is currently maximized
+bool
+CQTileWindowArea::
+isMaximized() const
+{
+  return area_->isMaximized();
+}
+
 // get title for area
 QString
 CQTileWindowArea::
@@ -2584,7 +2625,7 @@ getTitle() const
 {
   CQTileWindow *window = currentWindow();
 
-  return (window ? window->getTitle() : "");
+  return (window ? window->getTitle() : QString(""));
 }
 
 // get icon for area
@@ -2754,7 +2795,7 @@ cancelAttach()
   }
 
   // hide rubber band and stop timer
-  area_->hideRubberBand();
+  area()->hideRubberBand();
 
   attachData_.timer->stop();
 }
@@ -2918,7 +2959,7 @@ attach(CQTileArea::Side side, int row1, int col1, int row2, int col2, bool previ
       // determine tab index of last new window
       int ind = tabBar_->currentIndex() + area->tabBar_->count();
 
-      // add all window to drop area
+      // add all windows to drop area
       for (Windows::iterator p = windows_.begin(); p != windows_.end(); ++p)
         area->addWindow(*p);
 
@@ -2972,7 +3013,7 @@ setFloated()
 
   show();
 
-  if (! floating_) {
+  if (! isFloating()) {
     setDetached(false);
     setFloating(true);
   }
@@ -3163,7 +3204,7 @@ createContextMenu(QWidget *parent) const
 // update menu to show only relevant items
 void
 CQTileWindowArea::
-updateContextMenu(QMenu *menu)
+updateContextMenu(QMenu *menu) const
 {
   QList<QAction *> actions = menu->actions();
 
@@ -3270,7 +3311,7 @@ CQTileWindowTitle::
 CQTileWindowTitle(CQTileWindowArea *area) :
  area_(area), contextMenu_(0)
 {
-  // create detach/attach, maximize/restore and close button
+  // create detach/attach, maximize/restore and close buttons
   // TODO: tile button
   detachButton_   = addButton(QPixmap(detach_data  ));
   maximizeButton_ = addButton(QPixmap(maximize_data));
@@ -3452,12 +3493,14 @@ void
 CQTileWindowTitle::
 mouseReleaseEvent(QMouseEvent *)
 {
-  // stop animating
-  if (area_->area()->animateDrag())
-    area_->stopAttachPreview();
-
   // attach (if escape not pressed)
   if (! mouseState_.escapePress) {
+    // stop animating
+    if (area_->area()->animateDrag())
+      area_->stopAttachPreview();
+
+    //---
+
     CQTileArea::Side side;
     int              row1, col1, row2, col2;
 
@@ -3495,9 +3538,7 @@ CQTileWindowTitle::
 keyPressEvent(QKeyEvent *e)
 {
   if (e->key() == Qt::Key_Escape) {
-    if (mouseState_.pressed && ! area_->isDocked()) {
-      area_->reattach();
-
+    if (! mouseState_.escapePress && mouseState_.pressed && ! area_->isDocked()) {
       mouseState_.escapePress = true;
 
       area_->cancelAttach();
@@ -3581,7 +3622,7 @@ QString
 CQTileWindow::
 getTitle() const
 {
-  return (w_ && valid_ ? w_->windowTitle() : "");
+  return (w_ && valid_ ? w_->windowTitle() : QString(""));
 }
 
 // get window icon from widget (view)
