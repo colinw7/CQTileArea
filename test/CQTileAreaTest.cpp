@@ -13,16 +13,16 @@
 
 class ButtonWindow : public QWidget {
  public:
-  ButtonWindow(const std::string &name) {
-    setObjectName(name.c_str());
+  ButtonWindow(const QString &name) {
+    setObjectName(name);
 
-    setWindowTitle(name.c_str());
+    setWindowTitle(name);
     setWindowIcon(QPixmap(icon_data));
 
     QHBoxLayout *layout = new QHBoxLayout(this);
     layout->setMargin(0); layout->setSpacing(0);
 
-    button_ = new QPushButton(name.c_str());
+    button_ = new QPushButton(name);
 
     layout->addWidget(button_);
   }
@@ -41,21 +41,28 @@ CQTileAreaTest() :
 
   QMenu *fileMenu = menuBar()->addMenu("&File");
 
-  QAction *fillAction   = new QAction("&Fill"  , fileMenu);
-  QAction *dupAction    = new QAction("&Dup"   , fileMenu);
-  QAction *placeAction  = new QAction("&Place" , fileMenu);
-  QAction *adjustAction = new QAction("&Adjust", fileMenu);
-  QAction *printAction  = new QAction("&Print" , fileMenu);
+  QAction *addAction  = new QAction("&Add" , fileMenu);
+  QAction *quitAction = new QAction("&Quit", fileMenu);
 
-  QAction *quitAction   = new QAction("&Quit"  , fileMenu);
-
-  fileMenu->addAction(fillAction);
-  fileMenu->addAction(dupAction);
-  fileMenu->addAction(placeAction);
-  fileMenu->addAction(adjustAction);
-  fileMenu->addAction(printAction);
-
+  fileMenu->addAction(addAction);
   fileMenu->addAction(quitAction);
+
+  connect(addAction , SIGNAL(triggered()), this, SLOT(addWindow()));
+  connect(quitAction, SIGNAL(triggered()), this, SLOT(close()));
+
+  QMenu *debugMenu = menuBar()->addMenu("&Debug");
+
+  QAction *fillAction   = new QAction("&Fill"  , debugMenu);
+  QAction *dupAction    = new QAction("&Dup"   , debugMenu);
+  QAction *placeAction  = new QAction("&Place" , debugMenu);
+  QAction *adjustAction = new QAction("&Adjust", debugMenu);
+  QAction *printAction  = new QAction("&Print" , debugMenu);
+
+  debugMenu->addAction(fillAction);
+  debugMenu->addAction(dupAction);
+  debugMenu->addAction(placeAction);
+  debugMenu->addAction(adjustAction);
+  debugMenu->addAction(printAction);
 
   connect(fillAction  , SIGNAL(triggered()), area_, SLOT(fillSlot()));
   connect(dupAction   , SIGNAL(triggered()), area_, SLOT(dupSlot()));
@@ -63,14 +70,23 @@ CQTileAreaTest() :
   connect(adjustAction, SIGNAL(triggered()), area_, SLOT(adjustSlot()));
   connect(printAction , SIGNAL(triggered()), area_, SLOT(printSlot()));
 
-  connect(quitAction  , SIGNAL(triggered()), this , SLOT(close()));
-
   static const char *names[] = {
     "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine"
   };
 
   for (int i = 0; i < 9; ++i)
     area_->addWindow(new ButtonWindow(names[i]), i / 3, i % 3);
+}
+
+void
+CQTileAreaTest::
+addWindow()
+{
+  static int ind;
+
+  QString name = QString("Test%1").arg(++ind);
+
+  area_->addWindow(new ButtonWindow(name));
 }
 
 void

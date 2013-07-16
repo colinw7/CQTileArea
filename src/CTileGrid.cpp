@@ -204,6 +204,7 @@ removeDuplicateRows()
 {
   std::set<int> rows;
 
+  // check if each row matches previous one
   for (int r = 1; r < nrows_; ++r) {
     bool match = true;
 
@@ -221,6 +222,9 @@ removeDuplicateRows()
   if (rows.empty())
     return;
 
+  //---
+
+  // remove each duplicate row
   CTileGrid grid(nrows_ - rows.size(), ncols_);
 
   for (int r = 0, r1 = 0; r < nrows_; ++r) {
@@ -242,6 +246,7 @@ removeDuplicateCols()
 {
   std::set<int> cols;
 
+  // check if each column matches previous one
   for (int c = 1; c < ncols_; ++c) {
     bool match = true;
 
@@ -259,6 +264,7 @@ removeDuplicateCols()
   if (cols.empty())
     return;
 
+  // remove each duplicate column
   CTileGrid grid(nrows_, ncols_ - cols.size());
 
   for (int c = 0, c1 = 0; c < ncols_; ++c) {

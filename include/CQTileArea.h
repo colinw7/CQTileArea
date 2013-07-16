@@ -170,6 +170,9 @@ class CQTileArea : public QWidget {
   //! get all windows
   Windows getAllWindows() const;
 
+  //! emit current window changed signal
+  void emitCurrentWindowChanged();
+
   //! set layout to specified grid (for testing)
   void setGrid(int nrows, int ncols, const std::vector<int> &cells);
 
@@ -278,9 +281,6 @@ class CQTileArea : public QWidget {
 
   //! get window area for window
   CQTileWindowArea *getWindowArea(CQTileWindow *window) const;
-
-  //! emit current window changed signal
-  void emitCurrentWindowChanged();
 
   //! handle show event
   void showEvent(QShowEvent *);

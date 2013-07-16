@@ -14,6 +14,9 @@ class CQTileAreaTest : public QMainWindow {
   bool readLine(FILE *fp, std::string &line);
   bool readInteger(const std::string &line, int *pos, int *value);
 
+ private slots:
+  void addWindow();
+
  private:
   CQTileArea *area_;
 };

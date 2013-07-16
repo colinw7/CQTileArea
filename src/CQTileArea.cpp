@@ -957,7 +957,7 @@ adjustToFit()
       while (i2 < pids.size() && ! sized[pids[i2]])
         ++i2;
 
-      int ns = std::max(i2 - i1, 1U);
+      int ns = std::max(int(i2 - i1), 1);
 
       //---
 
@@ -1081,7 +1081,7 @@ adjustToFit()
       while (i2 < pids.size() && ! sized[pids[i2]])
         ++i2;
 
-      int ns = std::max(i2 - i1, 1U);
+      int ns = std::max(int(i2 - i1), 1);
 
       //---
 
@@ -1528,9 +1528,9 @@ getHSplitterRect(const HSplitter &splitter) const
   int x1 = INT_MAX, x2 = INT_MIN, yt = INT_MIN, yb = INT_MAX;
 
   for (AreaSet::const_iterator pt = splitter.tareas.begin(); pt != splitter.tareas.end(); ++pt) {
-    int area = *pt;
+    int pid = *pt;
 
-    const PlacementArea &placementArea = placementAreas_[area];
+    const PlacementArea &placementArea = placementAreas_[pid];
 
     yt = std::max(yt, placementArea.y2());
 
@@ -1539,9 +1539,9 @@ getHSplitterRect(const HSplitter &splitter) const
   }
 
   for (AreaSet::const_iterator pb = splitter.bareas.begin(); pb != splitter.bareas.end(); ++pb) {
-    int area = *pb;
+    int pid = *pb;
 
-    const PlacementArea &placementArea = placementAreas_[area];
+    const PlacementArea &placementArea = placementAreas_[pid];
 
     yb = std::min(yb, placementArea.y1());
 
@@ -1565,9 +1565,9 @@ getVSplitterRect(const VSplitter &splitter) const
   int y1 = INT_MAX, y2 = INT_MIN, xl = INT_MIN, xr = INT_MAX;
 
   for (AreaSet::const_iterator pl = splitter.lareas.begin(); pl != splitter.lareas.end(); ++pl) {
-    int area = *pl;
+    int pid = *pl;
 
-    const PlacementArea &placementArea = placementAreas_[area];
+    const PlacementArea &placementArea = placementAreas_[pid];
 
     xl = std::max(xl, placementArea.x2());
 
@@ -1576,9 +1576,9 @@ getVSplitterRect(const VSplitter &splitter) const
   }
 
   for (AreaSet::const_iterator pr = splitter.rareas.begin(); pr != splitter.rareas.end(); ++pr) {
-    int area = *pr;
+    int pid = *pr;
 
-    const PlacementArea &placementArea = placementAreas_[area];
+    const PlacementArea &placementArea = placementAreas_[pid];
 
     xr = std::min(xr, placementArea.x1());
 
@@ -2571,7 +2571,7 @@ addWindow(CQTileWindow *window)
 
   int ind = tabBar_->addTab(window->getIcon(), window->getTitle());
 
-  tabBar_->setTabData(ind, ind);
+  tabBar_->setTabData(ind, window->widget()->objectName());
 
   // show tabbar if more than one window
   tabBar_->setVisible(tabBar_->count() > 1);
@@ -2601,7 +2601,7 @@ removeWindow(CQTileWindow *window)
   stack_->removeWidget(window);
 
   for (int i = 0; i < tabBar_->count(); ++i) {
-    if (tabBar_->tabData(i).toInt() == ind) {
+    if (tabBar_->tabData(i).toString() == window->widget()->objectName()) {
       tabBar_->removeTab(i);
       break;
     }
@@ -3111,9 +3111,14 @@ CQTileWindowArea::
 tabChangedSlot(int tabNum)
 {
   // set stacked widget index from variant data
-  int ind = tabBar_->tabData(tabNum).toInt();
+  QString name = tabBar_->tabData(tabNum).toString();
 
-  stack_->setCurrentIndex(ind);
+  for (Windows::const_iterator p = windows_.begin(); p != windows_.end(); ++p) {
+    if (name == (*p)->widget()->objectName()) {
+      stack_->setCurrentWidget(*p);
+      break;
+    }
+  }
 
   // update title
   title_->update();
