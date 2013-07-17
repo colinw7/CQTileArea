@@ -14,6 +14,7 @@ class CQTileWindow;
 class CQTileWindowTabBar;
 class CQTileWindowTitle;
 class CQTileStackedWidget;
+class CQWidgetResizer;
 
 class QMenu;
 class QGridLayout;
@@ -25,6 +26,7 @@ class QRubberBand;
 class CQTileArea : public QWidget {
   Q_OBJECT
 
+  Q_PROPERTY(int    border             READ border             WRITE setBorder            )
   Q_PROPERTY(int    splitterSize       READ splitterSize       WRITE setSplitterSize      )
   Q_PROPERTY(bool   animateDrag        READ animateDrag        WRITE setAnimateDrag       )
   Q_PROPERTY(QColor titleActiveColor   READ titleActiveColor   WRITE setTitleActiveColor  )
@@ -137,6 +139,10 @@ class CQTileArea : public QWidget {
 
   //! destroy tile area
  ~CQTileArea();
+
+  //! get/set border
+  int  border() const { return border_; }
+  void setBorder(int border) { border_ = border; }
 
   //! get/set splitter size
   int  splitterSize() const { return splitterSize_; }
@@ -276,6 +282,9 @@ class CQTileArea : public QWidget {
   //! get vertical splitter rectangle
   QRect getVSplitterRect(const VSplitter &splitter) const;
 
+  //! is restore state valid
+  bool isRestoreValid() const;
+
   //! is maximized
   bool isMaximized() const;
 
@@ -391,7 +400,8 @@ class CQTileArea : public QWidget {
   ColVSplitterArray  vsplitters_;         //! vertical splitters
   MouseState         mouseState_;         //! mouse state
   Highlight          highlight_;          //! current highlight (for drag)
-  PlacementState     maximizeState_;      //! saved state to restore from maximized
+  PlacementState     restoreState_;       //! saved state to restore from maximized
+  int                border_;             //! border
   int                splitterSize_;       //! splitter size
   QRubberBand       *rubberBand_;         //! rubber band (for drag)
   CQTileWindowArea  *currentArea_;        //! current window area
@@ -413,6 +423,9 @@ class CQTileWindowArea : public QFrame {
  public:
   //! create window area
   CQTileWindowArea(CQTileArea *area);
+
+  //! destroy window area
+ ~CQTileWindowArea();
 
   //! get parent tile area
   CQTileArea *area() const { return area_; }
@@ -553,6 +566,7 @@ class CQTileWindowArea : public QFrame {
   CQTileWindowTitle   *title_;      //! title widget
   CQTileStackedWidget *stack_;      //! widget stack
   CQTileWindowTabBar  *tabBar_;     //! tabbar
+  CQWidgetResizer     *resizer_;    //! detached resizer
   Windows              windows_;    //! child window
   bool                 detached_;   //! detached flag
   bool                 floating_;   //! floating flag

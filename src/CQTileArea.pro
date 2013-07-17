@@ -10,10 +10,12 @@ CONFIG += staticlib
 HEADERS += \
 ../include/CQTileArea.h \
 ../include/CTileGrid.h \
+../include/CQWidgetResizer.h \
 
 SOURCES += \
 CQTileArea.cpp \
 CTileGrid.cpp \
+CQWidgetResizer.cpp \
 
 OBJECTS_DIR = ../obj
 

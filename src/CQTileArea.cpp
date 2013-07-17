@@ -1,4 +1,6 @@
 #include <CQTileArea.h>
+
+#include <CQWidgetResizer.h>
 #include <QVBoxLayout>
 #include <QStylePainter>
 #include <QStyleOption>
@@ -21,33 +23,23 @@
 #include <images/restore.xpm>
 #include <images/close.xpm>
 
-#if 0
-std::string sideStr(CQTileArea::Side side) {
-  switch (side) {
-    case CQTileArea::LEFT_SIDE  : return "left";
-    case CQTileArea::RIGHT_SIDE : return "right";
-    case CQTileArea::TOP_SIDE   : return "top";
-    case CQTileArea::BOTTOM_SIDE: return "bottom";
-    case CQTileArea::MIDDLE_SIDE: return "middle";
-    case CQTileArea::NO_SIDE    : return "none";
-    default                     : return "??";
-  }
-}
-#endif
-
 namespace CQTileAreaConstants {
-  bool   debug_grid      = true;
-  int    min_size        = 16;
-  int    highlight_size  = 16;
-  int    attach_timeout  = 10;
-  QColor bar_active_fg   = QColor(140,140,140);
-  QColor bar_inactive_fg = QColor(120,120,120);
-  int    border          = 2;
+  bool            debug_grid      = true;
+  int             min_size        = 16;
+  int             highlight_size  = 16;
+  int             attach_timeout  = 10;
+  QColor          bar_active_fg   = QColor(140,140,140);
+  QColor          bar_inactive_fg = QColor(120,120,120);
+  Qt::WindowFlags normalFlags     = Qt::Widget;
+  Qt::WindowFlags floatingFlags   = Qt::Tool | Qt::FramelessWindowHint |
+                                    Qt::X11BypassWindowManagerHint;
+  Qt::WindowFlags detachedFlags   = Qt::Tool | Qt::FramelessWindowHint;
 }
 
 CQTileArea::
 CQTileArea() :
- animateDrag_(true), splitterSize_(5), currentArea_(0), defWidth_(-1), defHeight_(-1)
+ animateDrag_(true), border_(0), splitterSize_(2), currentArea_(0),
+ defWidth_(-1), defHeight_(-1)
 {
   setObjectName("tileArea");
 
@@ -299,8 +291,15 @@ removeWindow(CQTileWindow *window)
 
   // delete window
   window->deleteLater();
+
+  // invalidate restore
+  restoreState_.valid_ = false;
+
+  // update titles
+  updateTitles();
 }
 
+// calc best position for new area
 void
 CQTileArea::
 calcBestWindowArea(int &row, int &col, int &nrows, int &ncols)
@@ -414,6 +413,7 @@ replaceWindowArea(CQTileWindowArea *oldArea, CQTileWindowArea *newArea)
   updatePlacementGeometry(placementArea);
 }
 
+// set grid from cell list (for debug)
 void
 CQTileArea::
 setGrid(int nrows, int ncols, const std::vector<int> &cells)
@@ -614,6 +614,7 @@ addSplitters()
   }
 }
 
+// combine touching splitters
 void
 CQTileArea::
 combineTouchingSplitters()
@@ -722,12 +723,17 @@ updatePlacementGeometry(PlacementArea &placementArea)
   CQTileWindowArea *area = getAreaForId(placementArea.areaId);
 
   if (area) {
-    area->setParent(this);
+    bool setParent = (area->parentWidget() != this ||
+                      area->windowFlags() != CQTileAreaConstants::normalFlags);
+
+    if (setParent)
+      area->setParent(this, CQTileAreaConstants::normalFlags);
 
     area->move  (placementArea.x1 (), placementArea.y1  ());
     area->resize(placementArea.width, placementArea.height);
 
-    area->show();
+    if (setParent)
+      area->show();
   }
 }
 
@@ -915,7 +921,7 @@ adjustToFit()
 
   std::vector<bool> sized(np);
 
-  int b  = CQTileAreaConstants::border;
+  int b  = border();
   int ss = splitterSize();
 
   //------
@@ -1189,7 +1195,7 @@ void
 CQTileArea::
 adjustSameWidthPlacements(PlacementArea &area)
 {
-  int b = CQTileAreaConstants::border;
+  int b = border();
 
   int is;
 
@@ -1231,7 +1237,7 @@ void
 CQTileArea::
 adjustSameHeightPlacements(PlacementArea &area)
 {
-  int b = CQTileAreaConstants::border;
+  int b = border();
 
   int is;
 
@@ -1470,6 +1476,8 @@ getHSplitter(int row, int col1, int col2, int &is)
   if (p == hsplitters_.end())
     return false;
 
+  int il = 0;
+
   HSplitterArray &splitters = (*p).second;
 
   int ns = splitters.size();
@@ -1479,10 +1487,17 @@ getHSplitter(int row, int col1, int col2, int &is)
 
     if (col1 > splitter1.col2 || col2 < splitter1.col1) continue;
 
-    is = i;
-
-    if (col1 == splitter1.col1 && col2 == splitter1.col2)
+    if (col1 == splitter1.col1 && col2 == splitter1.col2) {
+      is = i;
       return true;
+    }
+
+    int il1 = std::min(col2, splitter1.col2) - std::max(col1, splitter1.col1);
+
+    if (is < 0 || il1 > il) {
+      is = i;
+      il = il1;
+    }
   }
 
   return (is >= 0);
@@ -1500,6 +1515,8 @@ getVSplitter(int col, int row1, int row2, int &is)
   if (p == vsplitters_.end())
     return false;
 
+  int il = 0;
+
   VSplitterArray &splitters = (*p).second;
 
   int ns = splitters.size();
@@ -1509,10 +1526,17 @@ getVSplitter(int col, int row1, int row2, int &is)
 
     if (row1 > splitter1.row2 || row2 < splitter1.row1) continue;
 
-    is = i;
-
-    if (row1 == splitter1.row1 && row2 == splitter1.row2)
+    if (row1 == splitter1.row1 && row2 == splitter1.row2) {
+      is = i;
       return true;
+    }
+
+    int il1 = std::min(row2, splitter1.row2) - std::max(row1, splitter1.row1);
+
+    if (is < 0 || il1 > il) {
+      is = i;
+      il = il1;
+    }
   }
 
   return (is >= 0);
@@ -1604,7 +1628,7 @@ maximizeWindows()
   if (areas_.size() == 1)
     return;
 
-  saveState(maximizeState_, false);
+  saveState(restoreState_, false);
 
   // save all windows
   // TODO: only docked
@@ -1654,12 +1678,12 @@ void
 CQTileArea::
 restoreWindows()
 {
-  if (! maximizeState_.valid_)
+  if (! restoreState_.valid_)
     return;
 
-  PlacementState newState = maximizeState_;
+  PlacementState newState = restoreState_;
 
-  saveState(maximizeState_, false);
+  saveState(restoreState_, false);
 
   restoreState(newState);
 }
@@ -1744,6 +1768,14 @@ tileWindows()
 
   // update placement (use new placement sizes)
   updatePlacement(false);
+}
+
+// is restore state valid
+bool
+CQTileArea::
+isRestoreValid() const
+{
+  return restoreState_.valid_;
 }
 
 // is maximized
@@ -2385,6 +2417,7 @@ restoreState(const PlacementState &state)
   updatePlacementGeometries();
 }
 
+// get area for id
 CQTileWindowArea *
 CQTileArea::
 getAreaForId(int areaId) const
@@ -2397,6 +2430,7 @@ getAreaForId(int areaId) const
     return 0;
 }
 
+// set default placement size
 void
 CQTileArea::
 setDefPlacementSize(int w, int h)
@@ -2405,6 +2439,7 @@ setDefPlacementSize(int w, int h)
   defHeight_ = h;
 }
 
+// print grid (debug)
 void
 CQTileArea::
 printSlot()
@@ -2412,6 +2447,7 @@ printSlot()
   grid_.print(std::cerr);
 }
 
+// fill empty areas (debug)
 void
 CQTileArea::
 fillSlot()
@@ -2419,6 +2455,7 @@ fillSlot()
   fillEmptyCells();
 }
 
+// remove duplicate rows/columns (debug)
 void
 CQTileArea::
 dupSlot()
@@ -2426,6 +2463,7 @@ dupSlot()
   removeDuplicateCells();
 }
 
+// update placement (debug)
 void
 CQTileArea::
 placeSlot()
@@ -2437,6 +2475,7 @@ placeSlot()
   update();
 }
 
+// adjust to size (debug)
 void
 CQTileArea::
 adjustSlot()
@@ -2446,6 +2485,7 @@ adjustSlot()
   updatePlacementGeometries();
 }
 
+// return size hint
 QSize
 CQTileArea::
 sizeHint() const
@@ -2488,6 +2528,7 @@ sizeHint() const
   return QSize(w, h);
 }
 
+// return minimum size hint
 QSize
 CQTileArea::
 minimumSizeHint() const
@@ -2542,6 +2583,18 @@ CQTileWindowArea(CQTileArea *area) :
   attachData_.timer->setSingleShot(true);
 
   connect(attachData_.timer, SIGNAL(timeout()), this, SLOT(attachPreviewSlot()));
+
+  resizer_ = new CQWidgetResizer(this);
+
+  resizer_->setMovingEnabled(false);
+  resizer_->setActive(false);
+}
+
+// destroy area
+CQTileWindowArea::
+~CQTileWindowArea()
+{
+  delete resizer_;
 }
 
 // add widget (view) to area
@@ -2702,9 +2755,9 @@ detach(const QPoint &pos, bool floating, bool dragAll)
 
     // detach
     if (floating)
-      setParent(0, Qt::FramelessWindowHint);
+      setParent(area_, CQTileAreaConstants::floatingFlags);
     else
-      setParent(0, Qt::Window);
+      setParent(area_, CQTileAreaConstants::detachedFlags);
 
     if (! pos.isNull())
       move(pos - lpos);
@@ -2727,9 +2780,9 @@ detach(const QPoint &pos, bool floating, bool dragAll)
   // detach whole window area
   else {
     if (floating)
-      setParent(0, Qt::FramelessWindowHint);
+      setParent(area_, CQTileAreaConstants::floatingFlags);
     else
-      setParent(0, Qt::Window);
+      setParent(area_, CQTileAreaConstants::detachedFlags);
 
     if (! pos.isNull())
       move(pos - lpos);
@@ -2784,7 +2837,7 @@ cancelAttach()
   if (attachData_.initDocked) {
     area()->restoreState(attachData_.initState);
 
-    setParent(area_);
+    setParent(area_, CQTileAreaConstants::normalFlags);
 
     show();
 
@@ -2920,7 +2973,7 @@ CQTileWindowArea::
 attach(CQTileArea::Side side, int row1, int col1, int row2, int col2, bool preview)
 {
   if (! preview) {
-    setParent(area_);
+    setParent(area_, CQTileAreaConstants::normalFlags);
 
     show();
   }
@@ -2998,7 +3051,7 @@ void
 CQTileWindowArea::
 reattach()
 {
-  setParent(area_);
+  setParent(area_, CQTileAreaConstants::normalFlags);
 
   show();
 }
@@ -3009,13 +3062,13 @@ CQTileWindowArea::
 setFloated()
 {
   // set as standalone window
-  setWindowFlags(Qt::Window);
+  if (! isDetached()) {
+    setParent(area_, CQTileAreaConstants::detachedFlags);
 
-  show();
+    show();
 
-  if (! isFloating()) {
-    setDetached(false);
-    setFloating(true);
+    setDetached(true);
+    setFloating(false);
   }
 }
 
@@ -3024,7 +3077,12 @@ void
 CQTileWindowArea::
 setDetached(bool detached)
 {
+  if (detached_ == detached)
+    return;
+
   detached_ = detached;
+
+  resizer_->setActive(detached_);
 
   updateTitle();
 }
@@ -3034,6 +3092,9 @@ void
 CQTileWindowArea::
 setFloating(bool floating)
 {
+  if (floating_ == floating)
+    return;
+
   floating_ = floating;
 
   updateTitle();
@@ -3224,8 +3285,10 @@ updateContextMenu(QMenu *menu) const
       action->setVisible(! isDocked());
     else if (text == "Maximize")
       action->setVisible(! isMaximized());
-    else if (text == "Restore")
+    else if (text == "Restore") {
       action->setVisible(  isMaximized());
+      action->setEnabled(area_->isRestoreValid());
+    }
   }
 }
 
@@ -3351,6 +3414,11 @@ updateState()
 
   maximizeButton_->setToolTip(area_->isMaximized() ? "Restore" : "Maximize");
   detachButton_  ->setToolTip(! area_->isDocked () ? "Attach"  : "Detach"  );
+
+  if (area_->isMaximized())
+    maximizeButton_->setEnabled(area_->area()->isRestoreValid());
+  else
+    maximizeButton_->setEnabled(true);
 }
 
 // handle detach/attach
@@ -3560,8 +3628,13 @@ event(QEvent *e)
 {
   switch (e->type()) {
     case QEvent::HoverEnter:
-      setCursor(Qt::SizeAllCursor);
+    case QEvent::HoverMove: {
+      if (insideTitle(((QHoverEvent *)e)->pos()))
+        setCursor(Qt::SizeAllCursor);
+      else
+        setCursor(Qt::ArrowCursor);
       break;
+    }
     case QEvent::HoverLeave:
       unsetCursor();
       break;
@@ -3719,10 +3792,8 @@ namespace CQWidgetUtil {
 
     s = s.boundedTo(maxSize);
 
-    if (minSize.width() > 0)
-      s.setWidth(minSize.width());
-    if (minSize.height() > 0)
-      s.setHeight(minSize.height());
+    if (minSize.width () > 0) s.setWidth (minSize.width ());
+    if (minSize.height() > 0) s.setHeight(minSize.height());
 
     return s.expandedTo(QSize(0,0));
   }
