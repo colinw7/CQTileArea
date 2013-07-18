@@ -15,10 +15,10 @@ class CQTileWindowTabBar;
 class CQTileWindowTitle;
 class CQTileStackedWidget;
 class CQWidgetResizer;
+class CQRubberBand;
 
 class QMenu;
 class QGridLayout;
-class QRubberBand;
 
 // class to tile a set of windows in a Qt Main Window
 // tile is set out in a grid with splitters (resize bars) separating each
@@ -128,6 +128,10 @@ class CQTileArea : public QWidget {
     ColVSplitterArray vsplitters_;     //! saved vsplitter
 
     PlacementState() {
+      reset();
+    }
+
+    void reset() {
       valid_     = false;
       transient_ = true;
     }
@@ -147,6 +151,10 @@ class CQTileArea : public QWidget {
   //! get/set splitter size
   int  splitterSize() const { return splitterSize_; }
   void setSplitterSize(int size) { splitterSize_ = size; }
+
+  //! get/set drag animation enabled
+  bool animateDrag() const { return animateDrag_; }
+  void setAnimateDrag(bool animate) { animateDrag_ = animate; }
 
   //! get/set title active color
   QColor titleActiveColor   () const { return titleActiveColor_; }
@@ -198,10 +206,6 @@ class CQTileArea : public QWidget {
 
   //! get current area
   CQTileWindowArea *currentArea() const { return currentArea_; }
-
-  //! get/set drag animation enabled
-  bool animateDrag() const { return animateDrag_; }
-  void setAnimateDrag(bool animate) { animateDrag_ = animate; }
 
   //! set current area
   void setCurrentArea(CQTileWindowArea *area);
@@ -283,7 +287,7 @@ class CQTileArea : public QWidget {
   QRect getVSplitterRect(const VSplitter &splitter) const;
 
   //! is restore state valid
-  bool isRestoreValid() const;
+  bool isRestoreStateValid() const;
 
   //! is maximized
   bool isMaximized() const;
@@ -403,7 +407,7 @@ class CQTileArea : public QWidget {
   PlacementState     restoreState_;       //! saved state to restore from maximized
   int                border_;             //! border
   int                splitterSize_;       //! splitter size
-  QRubberBand       *rubberBand_;         //! rubber band (for drag)
+  CQRubberBand      *rubberBand_;         //! rubber band (for drag)
   CQTileWindowArea  *currentArea_;        //! current window area
   int                defWidth_;           //! default (new) area width
   int                defHeight_;          //! default (new) area height

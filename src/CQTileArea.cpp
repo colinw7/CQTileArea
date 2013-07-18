@@ -1,13 +1,14 @@
 #include <CQTileArea.h>
 
 #include <CQWidgetResizer.h>
+#include <CQRubberBand.h>
+
 #include <QVBoxLayout>
 #include <QStylePainter>
 #include <QStyleOption>
 #include <QMouseEvent>
 #include <QKeyEvent>
 #include <QApplication>
-#include <QRubberBand>
 #include <QDesktopWidget>
 #include <QMenu>
 #include <QTimer>
@@ -21,6 +22,7 @@
 #include <images/attach.xpm>
 #include <images/maximize.xpm>
 #include <images/restore.xpm>
+#include <images/tile.xpm>
 #include <images/close.xpm>
 
 namespace CQTileAreaConstants {
@@ -51,7 +53,7 @@ CQTileArea() :
   setMouseTracking(true);
 
   // create global rubber band for highlight
-  rubberBand_ = new QRubberBand(QRubberBand::Rectangle);
+  rubberBand_ = new CQRubberBand();
 
   rubberBand_->hide();
 }
@@ -1773,7 +1775,7 @@ tileWindows()
 // is restore state valid
 bool
 CQTileArea::
-isRestoreValid() const
+isRestoreStateValid() const
 {
   return restoreState_.valid_;
 }
@@ -3151,18 +3153,13 @@ void
 CQTileWindowArea::
 setCurrentWindow(CQTileWindow *window)
 {
-  int i = 0;
+  stack_->setCurrentWidget(window);
 
-  for (Windows::iterator p = windows_.begin(); p != windows_.end(); ++p) {
-    if (*p == window) {
-      stack_->setCurrentIndex(stack_->indexOf(window));
-
+  for (int i = 0; i < tabBar_->count(); ++i) {
+    if (tabBar_->tabData(i).toString() == window->widget()->objectName()) {
       tabBar_->setCurrentIndex(i);
-
-      return;
+      break;
     }
-
-    ++i;
   }
 }
 
@@ -3249,13 +3246,13 @@ createContextMenu(QWidget *parent) const
 {
   QMenu *menu = new QMenu(parent);
 
-  QAction *detachAction   = menu->addAction("Detach");
-  QAction *attachAction   = menu->addAction("Attach");
-  QAction *maximizeAction = menu->addAction("Maximize");
-  QAction *restoreAction  = menu->addAction("Restore");
-  QAction *tileAction     = menu->addAction("Tile");
+  QAction *detachAction   = menu->addAction(QPixmap(detach_data  ), "Detach");
+  QAction *attachAction   = menu->addAction(QPixmap(attach_data  ), "Attach");
+  QAction *maximizeAction = menu->addAction(QPixmap(maximize_data), "Maximize");
+  QAction *restoreAction  = menu->addAction(QPixmap(restore_data ), "Restore");
+  QAction *tileAction     = menu->addAction(QPixmap(tile_data    ), "Tile");
   (void)                    menu->addSeparator();
-  QAction *closeAction    = menu->addAction("Close");
+  QAction *closeAction    = menu->addAction(QPixmap(close_data   ), "Close");
 
   connect(detachAction  , SIGNAL(triggered()), this, SLOT(detachSlot()));
   connect(attachAction  , SIGNAL(triggered()), this, SLOT(attachSlot()));
@@ -3287,7 +3284,7 @@ updateContextMenu(QMenu *menu) const
       action->setVisible(! isMaximized());
     else if (text == "Restore") {
       action->setVisible(  isMaximized());
-      action->setEnabled(area_->isRestoreValid());
+      action->setEnabled(area_->isRestoreStateValid());
     }
   }
 }
@@ -3416,7 +3413,7 @@ updateState()
   detachButton_  ->setToolTip(! area_->isDocked () ? "Attach"  : "Detach"  );
 
   if (area_->isMaximized())
-    maximizeButton_->setEnabled(area_->area()->isRestoreValid());
+    maximizeButton_->setEnabled(area_->area()->isRestoreStateValid());
   else
     maximizeButton_->setEnabled(true);
 }
