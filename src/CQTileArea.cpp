@@ -26,7 +26,7 @@
 #include <images/close.xpm>
 
 namespace CQTileAreaConstants {
-  bool            debug_grid      = true;
+  bool            debug_grid      = false;
   int             min_size        = 16;
   int             highlight_size  = 16;
   int             attach_timeout  = 10;
@@ -38,9 +38,10 @@ namespace CQTileAreaConstants {
   Qt::WindowFlags detachedFlags   = Qt::Tool | Qt::FramelessWindowHint;
 }
 
+// create tile area
 CQTileArea::
 CQTileArea() :
- animateDrag_(true), border_(0), splitterSize_(2), currentArea_(0),
+ animateDrag_(true), border_(0), splitterSize_(3), currentArea_(0),
  defWidth_(-1), defHeight_(-1)
 {
   setObjectName("tileArea");
@@ -58,6 +59,7 @@ CQTileArea() :
   rubberBand_->hide();
 }
 
+// destroy tile area
 CQTileArea::
 ~CQTileArea()
 {
@@ -574,6 +576,15 @@ void
 CQTileArea::
 addSplitters()
 {
+  // reset splitter widgets
+  for (SplitterWidgets::iterator p = splitterWidgets_.begin(); p != splitterWidgets_.end(); ++p) {
+    CQTileAreaSplitter *splitter = (*p).second;
+
+    splitter->setUsed(false);
+  }
+
+  //---
+
   hsplitters_.clear();
   vsplitters_.clear();
 
@@ -613,6 +624,22 @@ addSplitters()
 
       intersectVSplitter(row, hsplitter);
     }
+  }
+
+  //------
+
+  for (RowHSplitterArray::iterator p = hsplitters_.begin(); p != hsplitters_.end(); ++p) {
+    HSplitterArray &hsplitters = (*p).second;
+
+    for (uint i = 0; i < hsplitters.size(); ++i)
+      hsplitters[i].splitterId = createSplitterWidget(Qt::Horizontal, (*p).first, i);
+  }
+
+  for (ColVSplitterArray::iterator p = vsplitters_.begin(); p != vsplitters_.end(); ++p) {
+    VSplitterArray &vsplitters = (*p).second;
+
+    for (uint i = 0; i < vsplitters.size(); ++i)
+      vsplitters[i].splitterId = createSplitterWidget(Qt::Vertical, (*p).first, i);
   }
 }
 
@@ -1811,8 +1838,6 @@ void
 CQTileArea::
 paintEvent(QPaintEvent *)
 {
-  QStylePainter ps(this);
-
   // draw horizontal splitters
   for (RowHSplitterArray::iterator p = hsplitters_.begin(); p != hsplitters_.end(); ++p) {
     HSplitterArray &splitters = (*p).second;
@@ -1822,21 +1847,15 @@ paintEvent(QPaintEvent *)
     for (int i = 0; i < ns; ++i) {
       HSplitter &splitter = splitters[i];
 
-      splitter.rect = getHSplitterRect(splitter);
+      QRect rect = getHSplitterRect(splitter);
 
-      QStyleOption opt;
+      //if (splitter.splitterId == -1)
+      //  splitter.splitterId = createSplitterWidget(Qt::Horizontal, (*p).first, i);
 
-      opt.initFrom(this);
+      CQTileAreaSplitter *splitterWidget = getSplitterWidget(splitter.splitterId);
 
-      opt.rect  = splitter.rect;
-      opt.state = QStyle::State_None;
-
-      if ((*p).first == mouseState_.pressHSplitter.first && i == mouseState_.pressHSplitter.second)
-        opt.state |= QStyle::State_Sunken;
-      if ((*p).first == mouseState_.mouseHSplitter.first && i == mouseState_.mouseHSplitter.second)
-        opt.state |= QStyle::State_MouseOver;
-
-      ps.drawControl(QStyle::CE_Splitter, opt);
+      if (splitterWidget)
+        splitterWidget->setGeometry(rect);
     }
   }
 
@@ -1849,23 +1868,64 @@ paintEvent(QPaintEvent *)
     for (int i = 0; i < ns; ++i) {
       VSplitter &splitter = splitters[i];
 
-      splitter.rect = getVSplitterRect(splitter);
+      QRect rect = getVSplitterRect(splitter);
 
-      QStyleOption opt;
+      //if (splitter.splitterId == -1)
+      //  splitter.splitterId = createSplitterWidget(Qt::Vertical, (*p).first, i);
 
-      opt.initFrom(this);
+      CQTileAreaSplitter *splitterWidget = getSplitterWidget(splitter.splitterId);
 
-      opt.rect  = splitter.rect;
-      opt.state = QStyle::State_Horizontal;
-
-      if ((*p).first == mouseState_.pressVSplitter.first && i == mouseState_.pressVSplitter.second)
-        opt.state |= QStyle::State_Sunken;
-      if ((*p).first == mouseState_.mouseVSplitter.first && i == mouseState_.mouseVSplitter.second)
-        opt.state |= QStyle::State_MouseOver;
-
-      ps.drawControl(QStyle::CE_Splitter, opt);
+      if (splitterWidget)
+        splitterWidget->setGeometry(rect);
     }
   }
+}
+
+int
+CQTileArea::
+createSplitterWidget(Qt::Orientation orient, int pos, int ind)
+{
+  CQTileAreaSplitter *splitter = 0;
+  int                 id       = -1;
+
+  for (SplitterWidgets::iterator p = splitterWidgets_.begin(); p != splitterWidgets_.end(); ++p) {
+    CQTileAreaSplitter *splitter1 = (*p).second;
+
+    if (splitter1->used()) continue;
+
+    splitter = splitter1;
+    id       = (*p).first;
+
+    break;
+  }
+
+  if (! splitter) {
+    id = splitterWidgets_.size();
+
+    splitter = new CQTileAreaSplitter(this);
+
+    splitter->setObjectName(QString("splitter%1").arg(id));
+
+    splitterWidgets_[id] = splitter;
+  }
+
+  splitter->init(orient, pos, ind);
+
+  splitter->setUsed(true);
+
+  return id;
+}
+
+CQTileAreaSplitter *
+CQTileArea::
+getSplitterWidget(int ind) const
+{
+  SplitterWidgets::const_iterator p = splitterWidgets_.find(ind);
+
+  if (p != splitterWidgets_.end())
+    return (*p).second;
+
+  return 0;
 }
 
 // draw rubberband for currently highlighted area side (returns rectangle used)
@@ -1937,176 +1997,121 @@ hideRubberBand()
   rubberBand_->hide();
 }
 
-// handle mouse press (start move of splitter)
 void
 CQTileArea::
-mousePressEvent(QMouseEvent *e)
+moveHSplitter(int row, int ind, int dy)
 {
-  mouseState_.pressed        = true;
-  mouseState_.pressPos       = e->globalPos();
-  mouseState_.pressHSplitter = getHSplitterAtPos(e->pos());
-  mouseState_.pressVSplitter = getVSplitterAtPos(e->pos());
+  HSplitter &splitter = hsplitters_[row][ind];
 
-  update();
-}
+  // limit dy
+  for (AreaSet::iterator pt = splitter.tareas.begin(); pt != splitter.tareas.end(); ++pt) {
+    int pid = *pt;
 
-// handle mouse move (move splitter to resize placement areas or highlight splitter under mouse)
-void
-CQTileArea::
-mouseMoveEvent(QMouseEvent *e)
-{
-  if (mouseState_.pressed) {
-    // move current horizontal splitter by mouse delta
-    int dx = e->globalPos().x() - mouseState_.pressPos.x();
-    int dy = e->globalPos().y() - mouseState_.pressPos.y();
+    PlacementArea &placementArea = placementAreas_[pid];
 
-    if (dy && mouseState_.pressHSplitter.first >= 0) {
-      HSplitter &splitter =
-        hsplitters_[mouseState_.pressHSplitter.first][mouseState_.pressHSplitter.second];
+    CQTileWindowArea *area = getAreaForId(placementArea.areaId);
 
-      // limit dy
-      for (AreaSet::iterator pt = splitter.tareas.begin(); pt != splitter.tareas.end(); ++pt) {
-        int pid = *pt;
+    int min_size = (area ? area->minimumSizeHint().height() :
+                           CQTileAreaConstants::min_size);
 
-        PlacementArea &placementArea = placementAreas_[pid];
-
-        CQTileWindowArea *area = getAreaForId(placementArea.areaId);
-
-        int min_size = (area ? area->minimumSizeHint().height() :
-                               CQTileAreaConstants::min_size);
-
-        if (dy < 0 && placementArea.height + dy <= min_size)
-          dy = min_size - placementArea.height;
-      }
-
-      for (AreaSet::iterator pb = splitter.bareas.begin(); pb != splitter.bareas.end(); ++pb) {
-        int pid = *pb;
-
-        PlacementArea &placementArea = placementAreas_[pid];
-
-        CQTileWindowArea *area = getAreaForId(placementArea.areaId);
-
-        int min_size = (area ? area->minimumSizeHint().height() :
-                               CQTileAreaConstants::min_size);
-
-        if (dy > 0 && placementArea.height - dy <= min_size)
-          dy = placementArea.height - min_size;
-      }
-
-      // apply dy to placement areas
-      for (AreaSet::iterator pt = splitter.tareas.begin(); pt != splitter.tareas.end(); ++pt) {
-        int pid = *pt;
-
-        PlacementArea &placementArea = placementAreas_[pid];
-
-        placementArea.height += dy;
-
-        updatePlacementGeometry(placementArea);
-      }
-
-      for (AreaSet::iterator pb = splitter.bareas.begin(); pb != splitter.bareas.end(); ++pb) {
-        int pid = *pb;
-
-        PlacementArea &placementArea = placementAreas_[pid];
-
-        placementArea.y      += dy;
-        placementArea.height -= dy;
-
-        updatePlacementGeometry(placementArea);
-      }
-    }
-
-    // move current vertical splitter by mouse delta
-    if (dx && mouseState_.pressVSplitter.first >= 0) {
-      VSplitter &splitter =
-        vsplitters_[mouseState_.pressVSplitter.first][mouseState_.pressVSplitter.second];
-
-      // limit dx
-      for (AreaSet::iterator pl = splitter.lareas.begin(); pl != splitter.lareas.end(); ++pl) {
-        int pid = *pl;
-
-        PlacementArea &placementArea = placementAreas_[pid];
-
-        CQTileWindowArea *area = getAreaForId(placementArea.areaId);
-
-        int min_size = (area ? area->minimumSizeHint().width() :
-                               CQTileAreaConstants::min_size);
-
-        if (dx < 0 && placementArea.width + dx <= min_size)
-          dx = min_size - placementArea.width;
-      }
-
-      for (AreaSet::iterator pr = splitter.rareas.begin(); pr != splitter.rareas.end(); ++pr) {
-        int pid = *pr;
-
-        PlacementArea &placementArea = placementAreas_[pid];
-
-        CQTileWindowArea *area = getAreaForId(placementArea.areaId);
-
-        int min_size = (area ? area->minimumSizeHint().width() :
-                               CQTileAreaConstants::min_size);
-
-        if (dx > 0 && placementArea.width - dx <= min_size)
-          dx = placementArea.width - min_size;
-      }
-
-      // apply dx to placement areas
-      for (AreaSet::iterator pl = splitter.lareas.begin(); pl != splitter.lareas.end(); ++pl) {
-        int pid = *pl;
-
-        PlacementArea &placementArea = placementAreas_[pid];
-
-        placementArea.width += dx;
-
-        updatePlacementGeometry(placementArea);
-      }
-
-      for (AreaSet::iterator pr = splitter.rareas.begin(); pr != splitter.rareas.end(); ++pr) {
-        int pid = *pr;
-
-        PlacementArea &placementArea = placementAreas_[pid];
-
-        placementArea.x     += dx;
-        placementArea.width -= dx;
-
-        updatePlacementGeometry(placementArea);
-      }
-    }
-
-    mouseState_.pressPos = e->globalPos();
-
-    update();
+    if (dy < 0 && placementArea.height + dy <= min_size)
+      dy = min_size - placementArea.height;
   }
-  // check for splitter under mouse and update cursor and highlight
-  else {
-    SplitterInd mouseHSplitter = getHSplitterAtPos(e->pos());
-    SplitterInd mouseVSplitter = getVSplitterAtPos(e->pos());
 
-    if (mouseHSplitter != mouseState_.mouseHSplitter ||
-        mouseVSplitter != mouseState_.mouseVSplitter) {
-      mouseState_.mouseHSplitter = mouseHSplitter;
-      mouseState_.mouseVSplitter = mouseVSplitter;
+  for (AreaSet::iterator pb = splitter.bareas.begin(); pb != splitter.bareas.end(); ++pb) {
+    int pid = *pb;
 
-      if      (mouseHSplitter.first != -1)
-        setCursor(Qt::SplitVCursor);
-      else if (mouseVSplitter.first != -1)
-        setCursor(Qt::SplitHCursor);
-      else
-        setCursor(Qt::ArrowCursor);
+    PlacementArea &placementArea = placementAreas_[pid];
 
-      update();
-    }
+    CQTileWindowArea *area = getAreaForId(placementArea.areaId);
+
+    int min_size = (area ? area->minimumSizeHint().height() :
+                           CQTileAreaConstants::min_size);
+
+    if (dy > 0 && placementArea.height - dy <= min_size)
+      dy = placementArea.height - min_size;
+  }
+
+  // apply dy to placement areas
+  for (AreaSet::iterator pt = splitter.tareas.begin(); pt != splitter.tareas.end(); ++pt) {
+    int pid = *pt;
+
+    PlacementArea &placementArea = placementAreas_[pid];
+
+    placementArea.height += dy;
+
+    updatePlacementGeometry(placementArea);
+  }
+
+  for (AreaSet::iterator pb = splitter.bareas.begin(); pb != splitter.bareas.end(); ++pb) {
+    int pid = *pb;
+
+    PlacementArea &placementArea = placementAreas_[pid];
+
+    placementArea.y      += dy;
+    placementArea.height -= dy;
+
+    updatePlacementGeometry(placementArea);
   }
 }
 
-// handle mouse release
 void
 CQTileArea::
-mouseReleaseEvent(QMouseEvent *)
+moveVSplitter(int col, int ind, int dx)
 {
-  mouseState_.reset();
+  // move current vertical splitter by mouse delta
+  VSplitter &splitter = vsplitters_[col][ind];
 
-  update();
+  // limit dx
+  for (AreaSet::iterator pl = splitter.lareas.begin(); pl != splitter.lareas.end(); ++pl) {
+    int pid = *pl;
+
+    PlacementArea &placementArea = placementAreas_[pid];
+
+    CQTileWindowArea *area = getAreaForId(placementArea.areaId);
+
+    int min_size = (area ? area->minimumSizeHint().width() :
+                           CQTileAreaConstants::min_size);
+
+    if (dx < 0 && placementArea.width + dx <= min_size)
+      dx = min_size - placementArea.width;
+  }
+
+  for (AreaSet::iterator pr = splitter.rareas.begin(); pr != splitter.rareas.end(); ++pr) {
+    int pid = *pr;
+
+    PlacementArea &placementArea = placementAreas_[pid];
+
+    CQTileWindowArea *area = getAreaForId(placementArea.areaId);
+
+    int min_size = (area ? area->minimumSizeHint().width() :
+                           CQTileAreaConstants::min_size);
+
+    if (dx > 0 && placementArea.width - dx <= min_size)
+      dx = placementArea.width - min_size;
+  }
+
+  // apply dx to placement areas
+  for (AreaSet::iterator pl = splitter.lareas.begin(); pl != splitter.lareas.end(); ++pl) {
+    int pid = *pl;
+
+    PlacementArea &placementArea = placementAreas_[pid];
+
+    placementArea.width += dx;
+
+    updatePlacementGeometry(placementArea);
+  }
+
+  for (AreaSet::iterator pr = splitter.rareas.begin(); pr != splitter.rareas.end(); ++pr) {
+    int pid = *pr;
+
+    PlacementArea &placementArea = placementAreas_[pid];
+
+    placementArea.x     += dx;
+    placementArea.width -= dx;
+
+    updatePlacementGeometry(placementArea);
+  }
 }
 
 // get horizontal splitter at position
@@ -2122,7 +2127,9 @@ getHSplitterAtPos(const QPoint &pos) const
     for (int i = 0; i < ns; ++i) {
       const HSplitter &splitter = splitters[i];
 
-      if (splitter.rect.contains(pos))
+      QWidget *splitterWidget = getSplitterWidget(splitter.splitterId);
+
+      if (splitterWidget->rect().contains(pos))
         return SplitterInd((*p).first, i);
     }
   }
@@ -2143,7 +2150,9 @@ getVSplitterAtPos(const QPoint &pos) const
     for (int i = 0; i < ns; ++i) {
       const VSplitter &splitter = splitters[i];
 
-      if (splitter.rect.contains(pos))
+      QWidget *splitterWidget = getSplitterWidget(splitter.splitterId);
+
+      if (splitterWidget->rect().contains(pos))
         return SplitterInd((*p).first, i);
     }
   }
@@ -4012,4 +4021,124 @@ minimumSizeHint() const
   }
 
   return s;
+}
+
+//------
+
+// create splitter
+CQTileAreaSplitter::
+CQTileAreaSplitter(CQTileArea *area) :
+ QWidget(area), area_(area), orient_(Qt::Vertical), pos_(-1), ind_(-1),
+ used_(false), mouseOver_(false)
+{
+  setCursor(Qt::SplitHCursor);
+
+  setVisible(false);
+}
+
+void
+CQTileAreaSplitter::
+init(Qt::Orientation orient, int pos, int ind)
+{
+  orient_ = orient;
+  pos_    = pos;
+  ind_    = ind;
+
+  if (orient_ == Qt::Vertical)
+    setCursor(Qt::SplitHCursor);
+  else
+    setCursor(Qt::SplitVCursor);
+}
+
+void
+CQTileAreaSplitter::
+setUsed(bool used)
+{
+  used_ = used;
+
+  setVisible(used_);
+}
+
+void
+CQTileAreaSplitter::
+paintEvent(QPaintEvent *)
+{
+  QStylePainter ps(this);
+
+  QStyleOption opt;
+
+  opt.initFrom(this);
+
+  opt.rect  = rect();
+  opt.state = (orient_ == Qt::Horizontal ? QStyle::State_None : QStyle::State_Horizontal);
+
+  if (mouseState_.pressed)
+    opt.state |= QStyle::State_Sunken;
+
+  if (mouseOver_)
+    opt.state |= QStyle::State_MouseOver;
+
+  ps.drawControl(QStyle::CE_Splitter, opt);
+}
+
+// handle mouse press (start move of splitter)
+void
+CQTileAreaSplitter::
+mousePressEvent(QMouseEvent *e)
+{
+  mouseState_.pressed  = true;
+  mouseState_.pressPos = e->globalPos();
+
+  update();
+}
+
+// handle mouse move (move splitter to resize placement areas or highlight splitter under mouse)
+void
+CQTileAreaSplitter::
+mouseMoveEvent(QMouseEvent *e)
+{
+  if (! mouseState_.pressed) return;
+
+  if (orient_ == Qt::Horizontal) {
+    int dy = e->globalPos().y() - mouseState_.pressPos.y();
+
+    area_->moveHSplitter(pos_, ind_, dy);
+  }
+  else {
+    int dx = e->globalPos().x() - mouseState_.pressPos.x();
+
+    area_->moveVSplitter(pos_, ind_, dx);
+  }
+
+  mouseState_.pressPos = e->globalPos();
+
+  update();
+}
+
+// handle mouse release
+void
+CQTileAreaSplitter::
+mouseReleaseEvent(QMouseEvent *)
+{
+  mouseState_.pressed = false;
+
+  update();
+}
+
+void
+CQTileAreaSplitter::
+enterEvent(QEvent *)
+{
+  mouseOver_ = true;
+
+  update();
+}
+
+void
+CQTileAreaSplitter::
+leaveEvent(QEvent *)
+{
+  mouseOver_ = false;
+
+  update();
 }

@@ -14,6 +14,7 @@ class CQTileWindow;
 class CQTileWindowTabBar;
 class CQTileWindowTitle;
 class CQTileStackedWidget;
+class CQTileAreaSplitter;
 class CQWidgetResizer;
 class CQRubberBand;
 
@@ -87,18 +88,22 @@ class CQTileArea : public QWidget {
 
   //! structure to store horizontal splitter geometry
   struct HSplitter {
-    int     col1, col2; //! col extend of splitter (needed ?)
-    AreaSet tareas;     //! areas above splitter
-    AreaSet bareas;     //! areas below splitter
-    QRect   rect;       //! bounding box or splitter (calc on draw)
+    int      col1, col2; //! col extend of splitter (needed ?)
+    AreaSet  tareas;     //! areas above splitter
+    AreaSet  bareas;     //! areas below splitter
+    int      splitterId; //! splitter widget id
+
+    HSplitter() : col1(-1), col2(-1), tareas(), bareas(), splitterId(-1) { }
   };
 
   //! structure to store vertical splitter geometry
   struct VSplitter {
-    int     row1, row2; //! row extend of splitter (needed ?)
-    AreaSet lareas;     //! areas left of splitter
-    AreaSet rareas;     //! areas right of splitter
-    QRect   rect;       //! bounding box or splitter (calc on draw)
+    int      row1, row2; //! row extend of splitter (needed ?)
+    AreaSet  lareas;     //! areas left of splitter
+    AreaSet  rareas;     //! areas right of splitter
+    int      splitterId; //! splitter widget id
+
+    VSplitter() : row1(-1), row2(-1), lareas(), rareas(), splitterId(-1) { }
   };
 
   //! current highlight
@@ -194,6 +199,7 @@ class CQTileArea : public QWidget {
   friend class CQTileWindowArea;
   friend class CQTileWindowTabBar;
   friend class CQTileWindowTitle;
+  friend class CQTileAreaSplitter;
 
   //! add new area
   CQTileWindowArea *addArea();
@@ -304,10 +310,14 @@ class CQTileArea : public QWidget {
   //! handle paint event
   void paintEvent(QPaintEvent *);
 
-  //! mouse mouse events
-  void mousePressEvent  (QMouseEvent *e);
-  void mouseMoveEvent   (QMouseEvent *e);
-  void mouseReleaseEvent(QMouseEvent *e);
+  //! move horizontal splitter
+  void moveHSplitter(int row, int ind, int dy);
+  //! move vertical splitter
+  void moveVSplitter(int col, int ind, int dx);
+
+  int createSplitterWidget(Qt::Orientation orient, int pos, int ind);
+
+  CQTileAreaSplitter *getSplitterWidget(int ind) const;
 
   //! update rubber band rectangle
   QRect updateRubberBand();
@@ -371,28 +381,7 @@ class CQTileArea : public QWidget {
   void windowClosed(CQTileWindow *);
 
  private:
-  //! structure for mouse state
-  struct MouseState {
-    bool        pressed;        //! mouse pressed
-    QPoint      pressPos;       //! mouse press position
-    SplitterInd pressHSplitter; //! pressed horizontal splitter
-    SplitterInd pressVSplitter; //! pressed vertical splitter
-    SplitterInd mouseHSplitter; //! mouse over horizontal splitter
-    SplitterInd mouseVSplitter; //! mouse over vertical splitter
-    bool        dragAll;        //! drag all tabs
-
-    MouseState() :
-     mouseHSplitter(-1,-1), mouseVSplitter(-1,-1), dragAll(false) {
-      reset();
-    }
-
-    void reset() {
-      pressed        = false;
-      pressHSplitter = SplitterInd(-1,-1);
-      pressVSplitter = SplitterInd(-1,-1);
-      dragAll        = false;
-    }
-  };
+  typedef std::map<int, CQTileAreaSplitter *> SplitterWidgets;
 
   CTileGrid          grid_;               //! layout grid
   bool               animateDrag_;        //! animate drag
@@ -402,7 +391,7 @@ class CQTileArea : public QWidget {
   PlacementAreas     placementAreas_;     //! placed areas
   RowHSplitterArray  hsplitters_;         //! horizontal splitters
   ColVSplitterArray  vsplitters_;         //! vertical splitters
-  MouseState         mouseState_;         //! mouse state
+  SplitterWidgets    splitterWidgets_;    //! splitter widgets
   Highlight          highlight_;          //! current highlight (for drag)
   PlacementState     restoreState_;       //! saved state to restore from maximized
   int                border_;             //! border
@@ -806,6 +795,52 @@ class CQTileStackedWidget : public QWidget {
   CQTileWindowArea *area_;         //! parent area
   int               currentIndex_; //! current index
   Widgets           widgets_;      //! child widgets
+};
+
+//! splitter widget
+class CQTileAreaSplitter : public QWidget {
+ public:
+  //! create splitter
+  CQTileAreaSplitter(CQTileArea *area);
+
+  //! set orientation and splitter key
+  void init(Qt::Orientation orient, int pos, int ind);
+
+  //! get/set used
+  bool used() const { return used_; }
+  void setUsed(bool used);
+
+  //! handle mouse events
+  void mousePressEvent  (QMouseEvent *e);
+  void mouseMoveEvent   (QMouseEvent *e);
+  void mouseReleaseEvent(QMouseEvent *e);
+
+  //! handle enter/leave events
+  void enterEvent(QEvent *e);
+  void leaveEvent(QEvent *e);
+
+ private:
+  // handle paint
+  void paintEvent(QPaintEvent *);
+
+ private:
+  //! structure for mouse state
+  struct MouseState {
+    bool   pressed;  //! mouse pressed
+    QPoint pressPos; //! mouse press position
+
+    MouseState() {
+      pressed = false;
+    }
+  };
+
+  CQTileArea      *area_;       //! parent area
+  Qt::Orientation  orient_;     //! orientation
+  int              pos_;        //! position (row or column)
+  int              ind_;        //! splitter index
+  bool             used_;       //! used
+  MouseState       mouseState_; //! mouse state
+  bool             mouseOver_;  //! mouseOver
 };
 
 #endif
