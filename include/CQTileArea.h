@@ -5,6 +5,8 @@
 
 #include <QFrame>
 #include <QTabBar>
+#include <QLabel>
+#include <QPointer>
 
 #include <map>
 #include <set>
@@ -15,15 +17,19 @@ class CQTileWindowTabBar;
 class CQTileWindowTitle;
 class CQTileStackedWidget;
 class CQTileAreaSplitter;
+class CQTileAreaMenuIcon;
+class CQTileAreaMenuControls;
+
 class CQWidgetResizer;
 class CQRubberBand;
 
+class QMainWindow;
 class QMenu;
 class QGridLayout;
 
-// class to tile a set of windows in a Qt Main Window
-// tile is set out in a grid with splitters (resize bars) separating each
-// set of grid cells
+//! class to tile a set of windows in a Qt Main Window
+//! tile is set out in a grid with splitters (resize bars) separating each
+//! set of grid cells
 class CQTileArea : public QWidget {
   Q_OBJECT
 
@@ -144,7 +150,7 @@ class CQTileArea : public QWidget {
 
  public:
   //! create tile area
-  CQTileArea();
+  CQTileArea(QMainWindow *window);
 
   //! destroy tile area
  ~CQTileArea();
@@ -186,8 +192,14 @@ class CQTileArea : public QWidget {
   //! is full screen display
   bool isFullScreen() const;
 
+  //! get number of windows
+  int getNumWindows() const;
+
   //! get all windows
   Windows getAllWindows() const;
+
+  //! get placement area for area
+  PlacementArea &getPlacementAreaForArea(CQTileWindowArea *area);
 
   //! emit current window changed signal
   void emitCurrentWindowChanged();
@@ -200,6 +212,8 @@ class CQTileArea : public QWidget {
   friend class CQTileWindowTabBar;
   friend class CQTileWindowTitle;
   friend class CQTileAreaSplitter;
+  friend class CQTileAreaMenuIcon;
+  friend class CQTileAreaMenuControls;
 
   //! add new area
   CQTileWindowArea *addArea();
@@ -273,6 +287,9 @@ class CQTileArea : public QWidget {
 
   //! update titles
   void updateTitles();
+
+  //! update menu bar widgets
+  void updateMenuBar();
 
   //! get placement area index from id
   int getPlacementAreaIndex(int id) const;
@@ -354,13 +371,24 @@ class CQTileArea : public QWidget {
   //! get minimum size hint
   QSize minimumSizeHint() const;
 
- public slots:
   //! maximize windows
   void maximizeWindows();
   //! restore windows
   void restoreWindows();
   //! tile windows
   void tileWindows();
+
+ public slots:
+  //! maximize all windows
+  void maximizeSlot();
+  //! restore windows
+  void restoreSlot();
+  //! tile all windows
+  void tileSlot();
+  //! detach current window
+  void detachSlot();
+  //! close current window
+  void closeSlot();
 
   //! print grid (debug)
   void printSlot();
@@ -381,8 +409,11 @@ class CQTileArea : public QWidget {
   void windowClosed(CQTileWindow *);
 
  private:
+  typedef QPointer<CQTileAreaMenuIcon>        MenuIconP;
+  typedef QPointer<CQTileAreaMenuControls>    MenuControlsP;
   typedef std::map<int, CQTileAreaSplitter *> SplitterWidgets;
 
+  QMainWindow       *window_;             //! parent window
   CTileGrid          grid_;               //! layout grid
   bool               animateDrag_;        //! animate drag
   QColor             titleActiveColor_;   //! title active color
@@ -398,15 +429,18 @@ class CQTileArea : public QWidget {
   int                splitterSize_;       //! splitter size
   CQRubberBand      *rubberBand_;         //! rubber band (for drag)
   CQTileWindowArea  *currentArea_;        //! current window area
+  bool               hasControls_;        //! has menu controls
+  MenuIconP          menuIcon_;           //! menu bar icon button
+  MenuControlsP      menuControls_;       //! menu bar controls
   int                defWidth_;           //! default (new) area width
   int                defHeight_;          //! default (new) area height
 };
 
 //------
 
-// class for each window area
-// a window area can contain one or more tile windows
-// multiple windows in a tile area produces a tab widget (customizable)
+//! class for each window area
+//! a window area can contain one or more tile windows
+//! multiple windows in a tile area produces a tab widget (customizable)
 class CQTileWindowArea : public QFrame {
   Q_OBJECT
 
@@ -455,9 +489,9 @@ class CQTileWindowArea : public QFrame {
   //! has window
   bool hasWindow(CQTileWindow *window) const;
 
-  // size hint
+  //! size hint
   QSize sizeHint() const;
-  // size minimum hint
+  //! size minimum hint
   QSize minimumSizeHint() const;
 
  private:
@@ -465,6 +499,9 @@ class CQTileWindowArea : public QFrame {
   void setDetached(bool detached);
   //! set floating
   void setFloating(bool floating);
+
+  //! get position of detached area
+  int getDetachPos(int w, int h) const;
 
   //! initialize animate attach
   void initAttach();
@@ -568,8 +605,8 @@ class CQTileWindowArea : public QFrame {
 
 //------
 
-// class to represent a tile window
-// a tile window has a titlebar
+//! class to represent a tile window
+//! a tile window has a titlebar
 class CQTileWindow : public QWidget {
   Q_OBJECT
 
@@ -648,7 +685,7 @@ class CQTileWindowTabBar : public QTabBar {
 
 #include <CQTitleBar.h>
 
-// widget for window area title bar
+//! widget for window area title bar
 class CQTileWindowTitle : public CQTitleBar {
   Q_OBJECT
 
@@ -797,6 +834,8 @@ class CQTileStackedWidget : public QWidget {
   Widgets           widgets_;      //! child widgets
 };
 
+//------
+
 //! splitter widget
 class CQTileAreaSplitter : public QWidget {
  public:
@@ -820,7 +859,7 @@ class CQTileAreaSplitter : public QWidget {
   void leaveEvent(QEvent *e);
 
  private:
-  // handle paint
+  //! handle paint
   void paintEvent(QPaintEvent *);
 
  private:
@@ -841,6 +880,43 @@ class CQTileAreaSplitter : public QWidget {
   bool             used_;       //! used
   MouseState       mouseState_; //! mouse state
   bool             mouseOver_;  //! mouseOver
+};
+
+//------
+
+class CQTileAreaMenuIcon : public QLabel {
+  Q_OBJECT
+
+ public:
+  CQTileAreaMenuIcon(CQTileArea *area);
+
+  void updateState();
+
+ private:
+  void setIcon(const QIcon &icon);
+
+ private:
+  CQTileArea *area_; //! parent area
+};
+
+//------
+
+class CQTileAreaMenuControls : public QFrame {
+  Q_OBJECT
+
+ public:
+  CQTileAreaMenuControls(CQTileArea *area);
+
+  void updateState();
+
+ private:
+  QToolButton *createButton(const char **data, const QString &tip);
+
+ private:
+  CQTileArea  *area_;          //! parent area
+  QToolButton *detachButton_;  //! detach button
+  QToolButton *restoreButton_; //! restore button
+  QToolButton *closeButton_;   //! close button
 };
 
 #endif

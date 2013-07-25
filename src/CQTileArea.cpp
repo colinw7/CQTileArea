@@ -3,6 +3,7 @@
 #include <CQWidgetResizer.h>
 #include <CQRubberBand.h>
 
+#include <QMainWindow>
 #include <QVBoxLayout>
 #include <QStylePainter>
 #include <QStyleOption>
@@ -10,6 +11,7 @@
 #include <QKeyEvent>
 #include <QApplication>
 #include <QDesktopWidget>
+#include <QMenuBar>
 #include <QMenu>
 #include <QTimer>
 
@@ -40,9 +42,9 @@ namespace CQTileAreaConstants {
 
 // create tile area
 CQTileArea::
-CQTileArea() :
- animateDrag_(true), border_(0), splitterSize_(3), currentArea_(0),
- defWidth_(-1), defHeight_(-1)
+CQTileArea(QMainWindow *window) :
+ window_(window), animateDrag_(true), border_(0), splitterSize_(3), currentArea_(0),
+ hasControls_(false), menuIcon_(), menuControls_(), defWidth_(-1), defHeight_(-1)
 {
   setObjectName("tileArea");
 
@@ -408,9 +410,7 @@ replaceWindowArea(CQTileWindowArea *oldArea, CQTileWindowArea *newArea)
   // reset cells of old area to new area
   grid_.replace(oldArea->id(), newArea->id());
 
-  int pid = getPlacementAreaIndex(oldArea->id());
-
-  PlacementArea &placementArea = placementAreas_[pid];
+  PlacementArea &placementArea = getPlacementAreaForArea(oldArea);
 
   placementArea.areaId = newArea->id();
 
@@ -752,16 +752,16 @@ updatePlacementGeometry(PlacementArea &placementArea)
   CQTileWindowArea *area = getAreaForId(placementArea.areaId);
 
   if (area) {
-    bool setParent = (area->parentWidget() != this ||
-                      area->windowFlags() != CQTileAreaConstants::normalFlags);
+    bool reparent = (area->parentWidget() != this ||
+                     (area->windowFlags() & Qt::FramelessWindowHint));
 
-    if (setParent)
+    if (reparent)
       area->setParent(this, CQTileAreaConstants::normalFlags);
 
     area->move  (placementArea.x1 (), placementArea.y1  ());
     area->resize(placementArea.width, placementArea.height);
 
-    if (setParent)
+    if (reparent)
       area->show();
   }
 }
@@ -1309,10 +1309,55 @@ void
 CQTileArea::
 updateTitles()
 {
+  updateMenuBar();
+
   for (WindowAreas::iterator p = areas_.begin(); p != areas_.end(); ++p) {
     CQTileWindowArea *area = (*p).second;
 
     area->updateTitle();
+  }
+}
+
+// update menu bar
+void
+CQTileArea::
+updateMenuBar()
+{
+  bool hasControls = isMaximized();
+
+  if (hasControls != hasControls_) {
+    hasControls_ = hasControls;
+
+    if (hasControls_ && menuIcon_.isNull()) {
+      menuIcon_     = new CQTileAreaMenuIcon(this);
+      menuControls_ = new CQTileAreaMenuControls(this);
+    }
+
+    if (hasControls_) {
+      QMenuBar *menuBar = window_->menuBar();
+
+      if (menuBar->cornerWidget(Qt::TopLeftCorner) != menuIcon_)
+        menuBar->setCornerWidget(menuIcon_, Qt::TopLeftCorner);
+
+      if (menuBar->cornerWidget(Qt::TopRightCorner) != menuControls_)
+        menuBar->setCornerWidget(menuControls_, Qt::TopRightCorner);
+
+      menuIcon_    ->show();
+      menuControls_->show();
+    }
+    else {
+      if (! menuIcon_.isNull()) {
+        menuIcon_    ->hide();
+        menuControls_->hide();
+      }
+    }
+  }
+
+  //---
+
+  if (! menuIcon_.isNull()) {
+    menuIcon_    ->updateState();
+    menuControls_->updateState();
   }
 }
 
@@ -1355,7 +1400,7 @@ setCurrentWindow(CQTileWindow *window)
   window = currentWindow();
 
   if (window)
-    window->setFocus(Qt::OtherFocusReason);
+    window->widget()->setFocus(Qt::OtherFocusReason);
 }
 
 // update current window title and icon
@@ -1419,7 +1464,7 @@ setCurrentArea(CQTileWindowArea *area)
     CQTileWindow *currentWindow = currentArea_->currentWindow();
 
     if (currentWindow)
-      currentWindow->setFocus(Qt::OtherFocusReason);
+      currentWindow->widget()->setFocus(Qt::OtherFocusReason);
   }
 
   // notify current window changed
@@ -1432,6 +1477,22 @@ CQTileArea::
 isFullScreen() const
 {
   return grid_.isSingleCell();
+}
+
+// get number of windows
+int
+CQTileArea::
+getNumWindows() const
+{
+  int num = 0;
+
+  for (WindowAreas::const_iterator p = areas_.begin(); p != areas_.end(); ++p) {
+    CQTileWindowArea *area = (*p).second;
+
+    num += area->getWindows().size();
+  }
+
+  return num;
 }
 
 // get list of all windows
@@ -1450,6 +1511,15 @@ getAllWindows() const
   }
 
   return windows;
+}
+
+CQTileArea::PlacementArea &
+CQTileArea::
+getPlacementAreaForArea(CQTileWindowArea *area)
+{
+  int pid = getPlacementAreaIndex(area->id());
+
+  return placementAreas_[pid];
 }
 
 // get array index of placement area of specified id
@@ -1645,6 +1715,14 @@ getVSplitterRect(const VSplitter &splitter) const
   return QRect((xl + xr)/2 - ss/2, y1, ss, y2 - y1);
 }
 
+// maximize all areas
+void
+CQTileArea::
+maximizeSlot()
+{
+  maximizeWindows();
+}
+
 // maximize all windows
 // TODO: skip non-docked
 void
@@ -1702,6 +1780,14 @@ maximizeWindows()
 }
 
 // restore all windows
+void
+CQTileArea::
+restoreSlot()
+{
+  restoreWindows();
+}
+
+// restore all windows
 // TODO: skip non-docked
 void
 CQTileArea::
@@ -1715,6 +1801,16 @@ restoreWindows()
   saveState(restoreState_, false);
 
   restoreState(newState);
+
+  updateTitles();
+}
+
+// tile all windows
+void
+CQTileArea::
+tileSlot()
+{
+  tileWindows();
 }
 
 // tile all windows
@@ -1805,6 +1901,28 @@ CQTileArea::
 isRestoreStateValid() const
 {
   return restoreState_.valid_;
+}
+
+// detach current window
+void
+CQTileArea::
+detachSlot()
+{
+  CQTileWindowArea *area = currentArea();
+
+  if (area)
+    area->detachSlot();
+}
+
+// close current window
+void
+CQTileArea::
+closeSlot()
+{
+  CQTileWindowArea *area = currentArea();
+
+  if (area)
+    area->closeSlot();
 }
 
 // is maximized
@@ -2425,6 +2543,8 @@ restoreState(const PlacementState &state)
   }
 
   // update widgets to new sizes
+  adjustToFit();
+
   updatePlacementGeometries();
 }
 
@@ -2718,8 +2838,6 @@ void
 CQTileWindowArea::
 detach(const QPoint &pos, bool floating, bool dragAll)
 {
-  static int detachPos = 16;
-
   // remove window area from grid and display as floating window
   assert(isDocked());
 
@@ -2773,15 +2891,9 @@ detach(const QPoint &pos, bool floating, bool dragAll)
     if (! pos.isNull())
       move(pos - lpos);
     else {
-      const QRect &screenRect = QApplication::desktop()->availableGeometry();
-
-      if (detachPos + width () >= screenRect.right () ||
-          detachPos + height() >= screenRect.bottom())
-        detachPos = 16;
+      int detachPos = getDetachPos(width(), height());
 
       move(detachPos, detachPos);
-
-      detachPos += 16;
     }
 
     show();
@@ -2798,15 +2910,9 @@ detach(const QPoint &pos, bool floating, bool dragAll)
     if (! pos.isNull())
       move(pos - lpos);
     else {
-      const QRect &screenRect = QApplication::desktop()->availableGeometry();
-
-      if (detachPos + width () >= screenRect.right () ||
-          detachPos + height() >= screenRect.bottom())
-        detachPos = 16;
+      int detachPos = getDetachPos(width(), height());
 
       move(detachPos, detachPos);
-
-      detachPos += 16;
     }
 
     show();
@@ -2826,6 +2932,26 @@ attachSlot()
     return;
 
   attach(false);
+}
+
+// get position of detached area
+int
+CQTileWindowArea::
+getDetachPos(int w, int h) const
+{
+  static int detachPos = 16;
+
+  const QRect &screenRect = QApplication::desktop()->availableGeometry();
+
+  if (detachPos + w >= screenRect.right () ||
+      detachPos + h >= screenRect.bottom())
+    detachPos = 16;
+
+  int pos = detachPos;
+
+  detachPos += 16;
+
+  return pos;
 }
 
 // initialize detach/attach animation data
@@ -3123,7 +3249,7 @@ updateTitle()
 
   bool titleVisible = true;
 
-  if (isDocked() && area_->isFullScreen() && windows_.size() == 1)
+  if (isDocked() && area_->isMaximized())
     titleVisible = false;
 
   title_->setVisible(titleVisible);
@@ -3203,7 +3329,7 @@ tileSlot()
 
   CQTileWindow *window = currentWindow();
 
-  area->tileWindows();
+  area->tileSlot();
 
   area->setCurrentWindow(window);
 }
@@ -3217,7 +3343,7 @@ maximizeSlot()
 
   CQTileWindow *window = currentWindow();
 
-  area->maximizeWindows();
+  area->maximizeSlot();
 
   area->setCurrentWindow(window);
 }
@@ -3231,7 +3357,7 @@ restoreSlot()
 
   CQTileWindow *window = currentWindow();
 
-  area->restoreWindows();
+  area->restoreSlot();
 
   area->setCurrentWindow(window);
 }
@@ -4141,4 +4267,95 @@ leaveEvent(QEvent *)
   mouseOver_ = false;
 
   update();
+}
+
+//------
+
+CQTileAreaMenuIcon::
+CQTileAreaMenuIcon(CQTileArea *area) :
+ QLabel(area), area_(area)
+{
+  setObjectName("menuIcon");
+
+  QFontMetrics fm(font());
+
+  int s = fm.height() - 2;
+
+  setFixedSize(s, s);
+}
+
+void
+CQTileAreaMenuIcon::
+updateState()
+{
+  CQTileWindow *window = area_->currentWindow();
+
+  if (window)
+    setIcon(window->getIcon());
+  else
+    setIcon(QIcon());
+}
+
+void
+CQTileAreaMenuIcon::
+setIcon(const QIcon &icon)
+{
+  int s = height();
+
+  if (! icon.isNull())
+    setPixmap(icon.pixmap(s,s));
+  else
+    setPixmap(QPixmap(s,s));
+}
+
+//------
+
+CQTileAreaMenuControls::
+CQTileAreaMenuControls(CQTileArea *area) :
+ QFrame(area), area_(area)
+{
+  setObjectName("menuControls");
+
+  QHBoxLayout *layout = new QHBoxLayout(this);
+  layout->setMargin(0); layout->setSpacing(1);
+
+  detachButton_  = createButton(detach_data , "Detach" );
+  restoreButton_ = createButton(restore_data, "Restore");
+  closeButton_   = createButton(close_data  , "Close"  );
+
+  layout->addWidget(detachButton_ );
+  layout->addWidget(restoreButton_);
+  layout->addWidget(closeButton_  );
+
+  connect(detachButton_ , SIGNAL(clicked()), area_, SLOT(detachSlot()));
+  connect(restoreButton_, SIGNAL(clicked()), area_, SLOT(restoreSlot()));
+  connect(closeButton_  , SIGNAL(clicked()), area_, SLOT(closeSlot()));
+}
+
+void
+CQTileAreaMenuControls::
+updateState()
+{
+  restoreButton_->setEnabled(area_->isRestoreStateValid());
+}
+
+QToolButton *
+CQTileAreaMenuControls::
+createButton(const char **data, const QString &tip)
+{
+  QFontMetrics fm(font());
+
+  int s = std::min(fm.height() + 2, 15);
+
+  QToolButton *button = new QToolButton;
+
+  button->setObjectName(tip);
+
+  button->setFixedSize(s, s);
+
+  button->setIcon(QPixmap(data));
+  button->setAutoRaise(true);
+  button->setToolTip(tip);
+
+  return button;
 }

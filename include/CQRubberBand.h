@@ -10,6 +10,7 @@ class CQRubberBand : public QRubberBand {
 
  public:
   CQRubberBand(QWidget *p=0);
+ ~CQRubberBand();
 
  private:
   CQRubberBandStyle *style_;

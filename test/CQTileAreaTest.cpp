@@ -35,7 +35,7 @@ CQTileAreaTest::
 CQTileAreaTest() :
  QMainWindow()
 {
-  area_ = new CQTileArea;
+  area_ = new CQTileArea(this);
 
   setCentralWidget(area_);
 

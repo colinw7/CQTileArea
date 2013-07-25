@@ -118,3 +118,9 @@ CQRubberBand(QWidget *p) :
 
   setStyle(style_);
 }
+
+CQRubberBand::
+~CQRubberBand()
+{
+  delete style_;
+}
