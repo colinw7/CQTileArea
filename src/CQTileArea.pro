@@ -1,6 +1,6 @@
 TEMPLATE = lib
 
-TARGET = 
+TARGET = CQTileArea
 
 DEPENDPATH += .
 
