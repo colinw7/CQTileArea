@@ -336,7 +336,8 @@ mouseMoveEvent(QMouseEvent *e)
       widget_->setGeometry(geom);
   }
 
-  QApplication::syncX();
+  QApplication::sync();
+  //QApplication::syncX();
 }
 
 void

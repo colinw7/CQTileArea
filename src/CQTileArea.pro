@@ -1,8 +1,12 @@
 TEMPLATE = lib
 
+QT += widgets
+
 TARGET = CQTileArea
 
 DEPENDPATH += .
+
+QMAKE_CXXFLAGS += -std=c++11
 
 CONFIG += staticlib
 
