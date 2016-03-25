@@ -92,8 +92,8 @@ class CQWidgetResizer : public QObject {
 
   QWidget       *widget_;          // parent widget
   QWidget       *childWidget_;     // optional child widget (for size constaint)
-  QPoint         moveOffset_;      // move offset
-  QPoint         invMoveOffset_;   // inverse move offset
+  QPoint         tlOffset_;        // move offset (from top left)
+  QPoint         brOffset_;        // move offset (from bottom right)
   MousePosition  mode_;            // mouse mode (resize/move position)
   int            fw_;              // frame width
   int            extraHeight_;     // extra height
