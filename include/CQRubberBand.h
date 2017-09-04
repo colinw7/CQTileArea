@@ -10,10 +10,15 @@ class CQRubberBand : public QRubberBand {
 
  public:
   CQRubberBand(QWidget *p=0);
+  CQRubberBand(QRubberBand::Shape shape, QWidget *p=0);
+
  ~CQRubberBand();
 
+  const QColor &color() const;
+  void setColor(const QColor &c);
+
  private:
-  CQRubberBandStyle *style_;
+  CQRubberBandStyle *style_ { nullptr };
 };
 
 #endif

@@ -3,18 +3,23 @@
 #include <QPainter>
 #include <QStyleOption>
 
-#define WINDOWS_XP_STYLE 1
+#define COMMON_STYLE 1
 
 class CQRubberBandStyle : public QCommonStyle {
  public:
   CQRubberBandStyle(CQRubberBand *band) :
-   band_(band) {
+   band_(band), color_(255,0,0) {
   }
+
+  const QColor &color() const { return color_; }
+  void setColor(const QColor &v) { color_ = v; }
 
  private:
   void drawControl(ControlElement element, const QStyleOption *opt, QPainter *p,
                    const QWidget *widget) const {
     if (element == CE_RubberBand) {
+      const QStyleOptionRubberBand *rbOpt = qstyleoption_cast<const QStyleOptionRubberBand *>(opt);
+
 #ifdef COMMON_STYLE
       QPixmap tiledPixmap(16, 16);
       QPainter pixmapPainter(&tiledPixmap);
@@ -33,10 +38,11 @@ class CQRubberBandStyle : public QCommonStyle {
       if (proxy()->styleHint(QStyle::SH_RubberBand_Mask, opt, widget, &mask))
         p->setClipRegion(mask.region);
       p->drawTiledPixmap(r.x(), r.y(), r.width(), r.height(), tiledPixmap);
-      p->setPen(opt->palette.color(QPalette::Active, QPalette::WindowText));
+      //p->setPen(opt->palette.color(QPalette::Active, QPalette::WindowText));
+      p->setPen(color_);
       p->setBrush(Qt::NoBrush);
       p->drawRect(r.adjusted(0, 0, -1, -1));
-   // if (rbOpt->shape == QRubberBand::Rectangle)
+      if (! rbOpt || rbOpt->shape == QRubberBand::Rectangle)
         p->drawRect(r.adjusted(3, 3, -4, -4));
       p->restore();
 #endif
@@ -108,7 +114,10 @@ class CQRubberBandStyle : public QCommonStyle {
 
  private:
   CQRubberBand *band_;
+  QColor        color_;
 };
+
+//------
 
 CQRubberBand::
 CQRubberBand(QWidget *p) :
@@ -120,7 +129,30 @@ CQRubberBand(QWidget *p) :
 }
 
 CQRubberBand::
+CQRubberBand(QRubberBand::Shape shape, QWidget *p) :
+ QRubberBand(shape, p)
+{
+  style_ = new CQRubberBandStyle(this);
+
+  setStyle(style_);
+}
+
+CQRubberBand::
 ~CQRubberBand()
 {
   delete style_;
+}
+
+const QColor &
+CQRubberBand::
+color() const
+{
+  return style_->color();
+}
+
+void
+CQRubberBand::
+setColor(const QColor &c)
+{
+  style_->setColor(c);
 }

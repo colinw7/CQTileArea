@@ -7,49 +7,14 @@
 #include <QSizeGrip>
 #include <QMouseEvent>
 
+#include <CQWidgetUtil.h>
+
 namespace {
   const int RANGE = 4;
 }
 
 bool CQWidgetResizer::resizeHorizontalDirectionFixed_ = false;
 bool CQWidgetResizer::resizeVerticalDirectionFixed_   = false;
-
-namespace CQWidgetResizerUtil {
-  QSize SmartMinSize(const QSize &sizeHint, const QSize &minSizeHint,
-                     const QSize &minSize, const QSize &maxSize,
-                     const QSizePolicy &sizePolicy) {
-    QSize s(0, 0);
-
-    if (sizePolicy.horizontalPolicy() != QSizePolicy::Ignored) {
-      if (sizePolicy.horizontalPolicy() & QSizePolicy::ShrinkFlag)
-        s.setWidth(minSizeHint.width());
-      else
-        s.setWidth(qMax(sizeHint.width(), minSizeHint.width()));
-    }
-
-    if (sizePolicy.verticalPolicy() != QSizePolicy::Ignored) {
-      if (sizePolicy.verticalPolicy() & QSizePolicy::ShrinkFlag) {
-        s.setHeight(minSizeHint.height());
-      }
-      else {
-        s.setHeight(qMax(sizeHint.height(), minSizeHint.height()));
-      }
-    }
-
-    s = s.boundedTo(maxSize);
-
-    if (minSize.width () > 0) s.setWidth (minSize.width ());
-    if (minSize.height() > 0) s.setHeight(minSize.height());
-
-    return s.expandedTo(QSize(0,0));
-  }
-
-  QSize SmartMinSize(const QWidget *w) {
-    return SmartMinSize(w->sizeHint(), w->minimumSizeHint(),
-                        w->minimumSize(), w->maximumSize(),
-                        w->sizePolicy());
-  }
-}
 
 CQWidgetResizer::
 CQWidgetResizer(QWidget *parent, QWidget *cw) :
@@ -117,7 +82,7 @@ eventFilter(QObject *o, QEvent *ee)
     return false;
   }
 
-  QMouseEvent *e = (QMouseEvent*)ee;
+  QMouseEvent *e = static_cast<QMouseEvent *>(ee);
 
   switch (e->type()) {
     case QEvent::MouseButtonPress: {
@@ -208,13 +173,13 @@ eventFilter(QObject *o, QEvent *ee)
       break;
     }
     case QEvent::KeyPress: {
-      keyPressEvent((QKeyEvent*)e);
+      keyPressEvent(static_cast<QKeyEvent *>(ee));
 
       break;
     }
     case QEvent::ShortcutOverride: {
       if (isButtonDown()) {
-        ((QKeyEvent*)ee)->accept();
+        static_cast<QKeyEvent *>(ee)->accept();
         return true;
       }
 
@@ -293,7 +258,7 @@ mouseMoveEvent(QMouseEvent *e)
   p .rx() = qMin( p.x(), desktop.right ());
   p .ry() = qMin( p.y(), desktop.bottom());
 
-  QSize ms = CQWidgetResizerUtil::SmartMinSize(childWidget_);
+  QSize ms = CQWidgetUtil::SmartMinSize(childWidget_);
 
   int mw = ms.width();
   int mh = ms.height();
@@ -363,7 +328,6 @@ mouseMoveEvent(QMouseEvent *e)
       widget_->setGeometry(geom);
   }
 
-  QApplication::sync();
   //QApplication::syncX();
 }
 
