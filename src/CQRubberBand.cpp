@@ -11,6 +11,8 @@ class CQRubberBandStyle : public QCommonStyle {
    band_(band), color_(255,0,0) {
   }
 
+  CQRubberBand *band() const { return band_; }
+
   const QColor &color() const { return color_; }
   void setColor(const QColor &v) { color_ = v; }
 
@@ -113,7 +115,7 @@ class CQRubberBandStyle : public QCommonStyle {
   }
 
  private:
-  CQRubberBand *band_;
+  CQRubberBand *band_ { nullptr };
   QColor        color_;
 };
 
@@ -155,4 +157,14 @@ CQRubberBand::
 setColor(const QColor &c)
 {
   style_->setColor(c);
+}
+
+void
+CQRubberBand::
+setBounds(const QPoint &p1, const QPoint &p2)
+{
+  QRect rect(std::min(p1.x(), p2.x()), std::min(p1.y(), p2.y()),
+             std::abs((p2.x() - p1.x()) + 1), std::abs((p2.y() - p1.y()) + 1));
+
+  setGeometry(rect);
 }
