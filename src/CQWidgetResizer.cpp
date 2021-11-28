@@ -26,7 +26,7 @@ CQWidgetResizer(QWidget *parent, QWidget *cw) :
 
   widget_->setMouseTracking(true);
 
-  QFrame *frame = qobject_cast<QFrame*>(widget_);
+  auto *frame = qobject_cast<QFrame*>(widget_);
 
   range_ = frame ? frame->frameWidth() : RANGE;
   range_ = qMax(RANGE, range_);
@@ -73,7 +73,7 @@ eventFilter(QObject *o, QEvent *ee)
 
   Q_ASSERT(o == widget_);
 
-  QWidget *w = widget_;
+  auto *w = widget_;
 
   if (QApplication::activePopupWidget()) {
     if (isButtonDown() && ee->type() == QEvent::MouseButtonRelease)
@@ -82,7 +82,7 @@ eventFilter(QObject *o, QEvent *ee)
     return false;
   }
 
-  QMouseEvent *e = static_cast<QMouseEvent *>(ee);
+  auto *e = static_cast<QMouseEvent *>(ee);
 
   switch (e->type()) {
     case QEvent::MouseButtonPress: {
@@ -196,7 +196,7 @@ void
 CQWidgetResizer::
 mouseMoveEvent(QMouseEvent *e)
 {
-  QPoint pos = widget_->mapFromGlobal(e->globalPos());
+  auto pos = widget_->mapFromGlobal(e->globalPos());
 
   if (! moveResizeMode_ && ! isButtonDown()) {
     if      (pos.y() <= range_ && pos.x() <= range_)
@@ -234,8 +234,8 @@ mouseMoveEvent(QMouseEvent *e)
   if (widget_->testAttribute(Qt::WA_WState_ConfigPending))
     return;
 
-  QPoint globalPos = (! widget_->isWindow() && widget_->parentWidget()) ?
-                      widget_->parentWidget()->mapFromGlobal(e->globalPos()) : e->globalPos();
+  auto globalPos = (! widget_->isWindow() && widget_->parentWidget()) ?
+                    widget_->parentWidget()->mapFromGlobal(e->globalPos()) : e->globalPos();
 
   if (! widget_->isWindow() && ! widget_->parentWidget()->rect().contains(globalPos)) {
     if (globalPos.x() < 0) globalPos.rx() = 0;
@@ -247,18 +247,18 @@ mouseMoveEvent(QMouseEvent *e)
       globalPos.ry() = widget_->parentWidget()->height();
   }
 
-  QPoint p  = globalPos + brOffset_;
-  QPoint pp = globalPos - tlOffset_;
+  auto p  = globalPos + brOffset_;
+  auto pp = globalPos - tlOffset_;
 
   // Workaround for window managers which refuse to move a tool window partially offscreen.
-  QRect desktop = QApplication::desktop()->availableGeometry(widget_);
+  auto desktop = QApplication::desktop()->availableGeometry(widget_);
 
   pp.rx() = qMax(pp.x(), desktop.left  ());
   pp.ry() = qMax(pp.y(), desktop.top   ());
   p .rx() = qMin( p.x(), desktop.right ());
   p .ry() = qMin( p.y(), desktop.bottom());
 
-  QSize ms = CQWidgetUtil::SmartMinSize(childWidget_);
+  auto ms = CQWidgetUtil::SmartMinSize(childWidget_);
 
   int mw = ms.width();
   int mh = ms.height();
@@ -281,7 +281,7 @@ mouseMoveEvent(QMouseEvent *e)
   QPoint mp(widget_->geometry().right () - mpsize.width () + 1,
             widget_->geometry().bottom() - mpsize.height() + 1);
 
-  QRect geom = widget_->geometry();
+  auto geom = widget_->geometry();
 
   switch (mode_) {
     case TopLeft:
@@ -335,10 +335,10 @@ void
 CQWidgetResizer::
 setMouseCursor(MousePosition m)
 {
-  QObjectList children = widget_->children();
+  auto children = widget_->children();
 
   for (int i = 0; i < children.size(); ++i) {
-    if (QWidget *w = qobject_cast<QWidget*>(children.at(i))) {
+    if (auto *w = qobject_cast<QWidget*>(children.at(i))) {
       if (! w->testAttribute(Qt::WA_SetCursor) && ! w->inherits("QWorkspaceTitleBar")) {
         w->setCursor(Qt::ArrowCursor);
       }
@@ -379,7 +379,7 @@ keyPressEvent(QKeyEvent *e)
 
   int delta = is_control ? 1 : 8;
 
-  QPoint pos = QCursor::pos();
+  auto pos = QCursor::pos();
 
   switch (e->key()) {
     case Qt::Key_Left: {

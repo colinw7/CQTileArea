@@ -319,13 +319,13 @@ class CQTileArea : public QWidget {
   CQTileWindowArea *getWindowArea(CQTileWindow *window) const;
 
   //! handle show event
-  void showEvent(QShowEvent *);
+  void showEvent(QShowEvent *) override;
 
   //! handle resize event
-  void resizeEvent(QResizeEvent *);
+  void resizeEvent(QResizeEvent *) override;
 
   //! handle paint event
-  void paintEvent(QPaintEvent *);
+  void paintEvent(QPaintEvent *) override;
 
   //! move horizontal splitter
   void moveHSplitter(int row, int ind, int dy);
@@ -367,9 +367,9 @@ class CQTileArea : public QWidget {
   CQTileWindowArea *getAreaForId(int areaId) const;
 
   //! get size hint
-  QSize sizeHint() const;
+  QSize sizeHint() const override;
   //! get minimum size hint
-  QSize minimumSizeHint() const;
+  QSize minimumSizeHint() const override;
 
   //! maximize windows
   void maximizeWindows();
@@ -490,9 +490,9 @@ class CQTileWindowArea : public QFrame {
   bool hasWindow(CQTileWindow *window) const;
 
   //! size hint
-  QSize sizeHint() const;
+  QSize sizeHint() const override;
   //! size minimum hint
-  QSize minimumSizeHint() const;
+  QSize minimumSizeHint() const override;
 
  private:
   //! set detached
@@ -642,10 +642,10 @@ class CQTileWindow : public QWidget {
   void setArea(CQTileWindowArea *area);
 
   //! handle hover events
-  bool event(QEvent *e);
+  bool event(QEvent *e) override;
 
   //! handle close event
-  void closeEvent(QCloseEvent *closeEvent);
+  void closeEvent(QCloseEvent *closeEvent) override;
 
  private slots:
   //! handle focus change
@@ -671,10 +671,10 @@ class CQTileWindowTabBar : public QTabBar {
 
  private:
   //! handle mouse press
-  void mousePressEvent(QMouseEvent *e);
+  void mousePressEvent(QMouseEvent *e) override;
 
   //! display context menu
-  void contextMenuEvent(QContextMenuEvent *e);
+  void contextMenuEvent(QContextMenuEvent *e) override;
 
  private:
   CQTileWindowArea *area_;        //! parent area
@@ -698,31 +698,33 @@ class CQTileWindowTitle : public CQTitleBar {
 
  private:
   //! get title
-  QString title() const;
+  QString title() const override;
+
   //! get icon
-  QIcon   icon() const;
+  QIcon icon() const override;
 
   //! get background color
-  QColor backgroundColor() const;
+  QColor backgroundColor() const override;
+
   //! get bar's color
-  QColor barColor() const;
+  QColor barColor() const override;
 
   //! handle mouse events
-  void mousePressEvent  (QMouseEvent *e);
-  void mouseMoveEvent   (QMouseEvent *e);
-  void mouseReleaseEvent(QMouseEvent *e);
+  void mousePressEvent  (QMouseEvent *e) override;
+  void mouseMoveEvent   (QMouseEvent *e) override;
+  void mouseReleaseEvent(QMouseEvent *e) override;
 
   //! handle double click (expand)
-  void mouseDoubleClickEvent(QMouseEvent *e);
+  void mouseDoubleClickEvent(QMouseEvent *e) override;
 
   //! handle key press (escape)
-  void keyPressEvent(QKeyEvent *e);
+  void keyPressEvent(QKeyEvent *e) override;
 
   //! display context menu
-  void contextMenuEvent(QContextMenuEvent *e);
+  void contextMenuEvent(QContextMenuEvent *e) override;
 
   //! handle hover
-  bool event(QEvent *e);
+  bool event(QEvent *e) override;
 
  private slots:
   //! detach
@@ -797,17 +799,17 @@ class CQTileStackedWidget : public QWidget {
   int count() const;
 
   //! size hint
-  QSize sizeHint() const;
+  QSize sizeHint() const override;
 
   //! minimum size hint
-  QSize minimumSizeHint() const;
+  QSize minimumSizeHint() const override;
 
  private:
   //! handle show
-  void showEvent(QShowEvent *);
+  void showEvent(QShowEvent *) override;
 
   //! handle resize
-  void resizeEvent(QResizeEvent *);
+  void resizeEvent(QResizeEvent *) override;
 
   //! update layout
   void updateLayout();
@@ -850,17 +852,17 @@ class CQTileAreaSplitter : public QWidget {
   void setUsed(bool used);
 
   //! handle mouse events
-  void mousePressEvent  (QMouseEvent *e);
-  void mouseMoveEvent   (QMouseEvent *e);
-  void mouseReleaseEvent(QMouseEvent *e);
+  void mousePressEvent  (QMouseEvent *e) override;
+  void mouseMoveEvent   (QMouseEvent *e) override;
+  void mouseReleaseEvent(QMouseEvent *e) override;
 
   //! handle enter/leave events
-  void enterEvent(QEvent *e);
-  void leaveEvent(QEvent *e);
+  void enterEvent(QEvent *e) override;
+  void leaveEvent(QEvent *e) override;
 
  private:
   //! handle paint
-  void paintEvent(QPaintEvent *);
+  void paintEvent(QPaintEvent *) override;
 
  private:
   //! structure for mouse state

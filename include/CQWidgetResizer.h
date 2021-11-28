@@ -60,7 +60,7 @@ class CQWidgetResizer : public QObject {
 
  protected:
   // handle widget events
-  bool eventFilter(QObject *o, QEvent *e);
+  bool eventFilter(QObject *o, QEvent *e) override;
 
   // handle move event
   void mouseMoveEvent(QMouseEvent *e);
