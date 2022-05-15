@@ -85,13 +85,13 @@ fillEmptyCells()
   // save original grid
   CTileGrid grid = *this;
 
-  int ncells = nrows()*ncols();
+  uint ncells = uint(nrows()*ncols());
 
   bool failed = false;
 
   while (! failed) {
     // find empty cell
-    int i = 0;
+    uint i = 0;
 
     for ( ; i < ncells; ++i)
       if (cells_[i] < 0)
@@ -100,8 +100,8 @@ fillEmptyCells()
     if (i >= ncells)
       break;
 
-    int r = i / ncols();
-    int c = i % ncols();
+    int r = int(int(i) / ncols());
+    int c = int(int(i) % ncols());
 
     int id = cell(r, c);
 
@@ -225,7 +225,7 @@ removeDuplicateRows()
   //---
 
   // remove each duplicate row
-  CTileGrid grid(nrows_ - rows.size(), ncols_);
+  CTileGrid grid(nrows_ - int(rows.size()), ncols_);
 
   for (int r = 0, r1 = 0; r < nrows_; ++r) {
     if (rows.find(r) != rows.end()) continue;
@@ -265,7 +265,7 @@ removeDuplicateCols()
     return;
 
   // remove each duplicate column
-  CTileGrid grid(nrows_, ncols_ - cols.size());
+  CTileGrid grid(nrows_, ncols_ - int(cols.size()));
 
   for (int c = 0, c1 = 0; c < ncols_; ++c) {
     if (cols.find(c) != cols.end()) continue;

@@ -24,17 +24,17 @@ class CTileGrid {
 
   //! get editable cell at row/column
   int &cell(int r, int c) {
-    return cells_[r*ncols_ + c];
+    return cells_[uint(r*ncols_ + c)];
   }
 
   //! get cell at row/column
   int cell(int r, int c) const {
-    return cells_[r*ncols_ + c];
+    return cells_[uint(r*ncols_ + c)];
   }
 
   //! get cell at index
   int cell(int ind) const {
-    return cells_[ind];
+    return cells_[uint(ind)];
   }
 
   //! reset to empty
@@ -50,7 +50,7 @@ class CTileGrid {
     nrows_ = nrows;
     ncols_ = ncols;
 
-    cells_.resize(nrows_*ncols_);
+    cells_.resize(uint(nrows_*ncols_));
   }
 
   //! is single cell
@@ -58,7 +58,9 @@ class CTileGrid {
 
   //! replace old index with new index
   void replace(int oldId, int newId) {
-    for (int i = 0; i < nrows_*ncols_; ++i) {
+    uint n = uint(nrows_*ncols_);
+
+    for (uint i = 0; i < n; ++i) {
       if (cells_[i] == oldId)
         cells_[i] = newId;
     }
@@ -66,7 +68,9 @@ class CTileGrid {
 
   //! clear to index
   void clear(int ind=-1) {
-    for (int i = 0; i < nrows_*ncols_; ++i)
+    uint n = uint(nrows_*ncols_);
+
+    for (uint i = 0; i < n; ++i)
       cells_[i] = ind;
   }
 
