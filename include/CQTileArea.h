@@ -3,9 +3,7 @@
 
 #include <CTileGrid.h>
 
-#include <QFrame>
-#include <QTabBar>
-#include <QLabel>
+#include <QWidget>
 #include <QPointer>
 
 #include <map>
@@ -51,16 +49,20 @@ class CQTileArea : public QWidget {
   };
 
  private:
-  typedef std::vector<CQTileWindow *> Windows;
+  using Windows = std::vector<CQTileWindow *>;
 
   //! structure to store physical placement area of area
   struct PlacementArea {
-    int     row, col;      //! row, column
-    int     nrows, ncols;  //! number of rows/columns
-    int     areaId;        //! associated area (can be invalid (<= 0))
-    Windows windows;       //! associated area windows (used for saving)
-    int     x, y;          //! position
-    int     width, height; //! size
+    int     row     { 0 };  //!< row
+    int     col     { 0 };  //!< column
+    int     nrows   { 1 };  //!< number of rows
+    int     ncols   { 1 };  //!< number of columns
+    int     areaId  { -1 }; //!< associated area (can be invalid (<= 0))
+    Windows windows;        //!< associated area windows (used for saving)
+    int     x       { 0 };  //!< x
+    int     y       { 0 };  //!< y
+    int     width   { 1 };  //!< width
+    int     height  { 1 };  //!< height
 
     int row1() const { return row        ; }
     int col1() const { return col        ; }
@@ -90,53 +92,59 @@ class CQTileArea : public QWidget {
     QRect rect() const { return QRect(x, y, width, height); }
   };
 
-  typedef std::set<int> AreaSet;
+  using AreaSet = std::set<int>;
 
   //! structure to store horizontal splitter geometry
   struct HSplitter {
-    int      col1, col2; //! col extend of splitter (needed ?)
-    AreaSet  tareas;     //! areas above splitter
-    AreaSet  bareas;     //! areas below splitter
-    int      splitterId; //! splitter widget id
+    int      col1 { -1 };       //!< min col extend of splitter (needed ?)
+    int      col2 { -1 };       //!< max col extend of splitter (needed ?)
+    AreaSet  tareas;            //!< areas above splitter
+    AreaSet  bareas;            //!< areas below splitter
+    int      splitterId { -1 }; //!< splitter widget id
 
-    HSplitter() : col1(-1), col2(-1), tareas(), bareas(), splitterId(-1) { }
+    HSplitter() { }
   };
 
   //! structure to store vertical splitter geometry
   struct VSplitter {
-    int      row1, row2; //! row extend of splitter (needed ?)
-    AreaSet  lareas;     //! areas left of splitter
-    AreaSet  rareas;     //! areas right of splitter
-    int      splitterId; //! splitter widget id
+    int      row1 { -1 };       //!< min row extend of splitter (needed ?)
+    int      row2 { -1 };       //!< max row extend of splitter (needed ?)
+    AreaSet  lareas;            //!< areas left of splitter
+    AreaSet  rareas;            //!< areas right of splitter
+    int      splitterId { -1 }; //!< splitter widget id
 
-    VSplitter() : row1(-1), row2(-1), lareas(), rareas(), splitterId(-1) { }
+    VSplitter() { }
   };
 
   //! current highlight
   struct Highlight {
-    int  ind;  //! highlight cell ind
-    Side side; //! highlight side
+    int  ind  { -1 };      //!< highlight cell ind
+    Side side { NO_SIDE }; //!< highlight side
 
-    Highlight(int ind1=-1, Side side1=NO_SIDE) : ind(ind1), side(side1) { }
+    Highlight() { }
+
+    Highlight(int ind, Side side) :
+     ind(ind), side(side) {
+    }
   };
 
-  typedef std::map<int,CQTileWindowArea *> WindowAreas;
-  typedef std::vector<PlacementArea>       PlacementAreas;
-  typedef std::vector<HSplitter>           HSplitterArray;
-  typedef std::map<int,HSplitterArray>     RowHSplitterArray;
-  typedef std::vector<VSplitter>           VSplitterArray;
-  typedef std::map<int,VSplitterArray>     ColVSplitterArray;
-  typedef std::pair<int,int>               SplitterInd;
+  using WindowAreas       = std::map<int, CQTileWindowArea *>;
+  using PlacementAreas    = std::vector<PlacementArea>;
+  using HSplitterArray    = std::vector<HSplitter>;
+  using RowHSplitterArray = std::map<int, HSplitterArray>;
+  using VSplitterArray    = std::vector<VSplitter>;
+  using ColVSplitterArray = std::map<int, VSplitterArray>;
+  using SplitterInd       = std::pair<int, int>;
 
  public:
   //! structure for (saved) placement state
   struct PlacementState {
-    bool              valid_;          //! is valid
-    bool              transient_;      //! is transient state
-    CTileGrid         grid_;           //! saved grid
-    PlacementAreas    placementAreas_; //! saved placement areas
-    RowHSplitterArray hsplitters_;     //! saved hsplitters
-    ColVSplitterArray vsplitters_;     //! saved vsplitter
+    bool              valid_     { false }; //!< is valid
+    bool              transient_ { true };  //!< is transient state
+    CTileGrid         grid_;                //!< saved grid
+    PlacementAreas    placementAreas_;      //!< saved placement areas
+    RowHSplitterArray hsplitters_;          //!< saved hsplitters
+    ColVSplitterArray vsplitters_;          //!< saved vsplitter
 
     PlacementState() {
       reset();
@@ -409,516 +417,31 @@ class CQTileArea : public QWidget {
   void windowClosed(CQTileWindow *);
 
  private:
-  typedef QPointer<CQTileAreaMenuIcon>        MenuIconP;
-  typedef QPointer<CQTileAreaMenuControls>    MenuControlsP;
-  typedef std::map<int, CQTileAreaSplitter *> SplitterWidgets;
-
-  QMainWindow       *window_;             //! parent window
-  CTileGrid          grid_;               //! layout grid
-  bool               animateDrag_;        //! animate drag
-  QColor             titleActiveColor_;   //! title active color
-  QColor             titleInactiveColor_; //! title inactive color
-  WindowAreas        areas_;              //! window areas
-  PlacementAreas     placementAreas_;     //! placed areas
-  RowHSplitterArray  hsplitters_;         //! horizontal splitters
-  ColVSplitterArray  vsplitters_;         //! vertical splitters
-  SplitterWidgets    splitterWidgets_;    //! splitter widgets
-  Highlight          highlight_;          //! current highlight (for drag)
-  PlacementState     restoreState_;       //! saved state to restore from maximized
-  int                border_;             //! border
-  int                splitterSize_;       //! splitter size
-  CQRubberBand      *rubberBand_;         //! rubber band (for drag)
-  CQTileWindowArea  *currentArea_;        //! current window area
-  bool               hasControls_;        //! has menu controls
-  MenuIconP          menuIcon_;           //! menu bar icon button
-  MenuControlsP      menuControls_;       //! menu bar controls
-  int                defWidth_;           //! default (new) area width
-  int                defHeight_;          //! default (new) area height
-};
-
-//------
-
-//! class for each window area
-//! a window area can contain one or more tile windows
-//! multiple windows in a tile area produces a tab widget (customizable)
-class CQTileWindowArea : public QFrame {
-  Q_OBJECT
-
- public:
-  typedef std::vector<CQTileWindow *> Windows;
-
- public:
-  //! create window area
-  CQTileWindowArea(CQTileArea *area);
-
-  //! destroy window area
- ~CQTileWindowArea();
-
-  //! get parent tile area
-  CQTileArea *area() const { return area_; }
-
-  //! get id
-  int id() const { return id_; }
-
-  //! get child windows
-  const Windows &getWindows() const { return windows_; }
-
-  //! add widget to area
-  CQTileWindow *addWidget(QWidget *w);
-
-  //! is currently detached
-  bool isDetached () const { return detached_; }
-  //! is currently floating
-  bool isFloating () const { return floating_; }
-  //! is currently docked
-  bool isDocked   () const { return ! isDetached() && ! isFloating(); }
-  //! is currently maximized
-  bool isMaximized() const;
-
-  //! get title
-  QString getTitle() const;
-
-  //! get icon
-  QIcon getIcon() const;
-
-  //! get current window
-  CQTileWindow *currentWindow() const;
-  //! get current window
-  void setCurrentWindow(CQTileWindow *window);
-
-  //! has window
-  bool hasWindow(CQTileWindow *window) const;
-
-  //! size hint
-  QSize sizeHint() const override;
-  //! size minimum hint
-  QSize minimumSizeHint() const override;
-
- private:
-  //! set detached
-  void setDetached(bool detached);
-  //! set floating
-  void setFloating(bool floating);
-
-  //! get position of detached area
-  int getDetachPos(int w, int h) const;
-
-  //! initialize animate attach
-  void initAttach();
-  //! cancel animate attach
-  void cancelAttach();
-  //! start attach animate
-  void startAttachPreview();
-  //! perform attach animate
-  void doAttachPreview();
-  //! stop attach animate
-  void stopAttachPreview();
-
-  //! detach at specified point
-  void detach(const QPoint &pos, bool floating, bool dragAll);
-
-  //! attach
-  void attach(bool preview=false);
-  //! attach at specified side and grid position
-  void attach(CQTileArea::Side side, int row1, int col1, int row2, int col2, bool preview=false);
-
-  //! reattach at original position
-  void reattach();
-
-  //! set floated
-  void setFloated();
-
-  //! update title
-  void updateTitle();
-
-  //! add child window
-  void addWindow(CQTileWindow *window);
-
-  //! remove child window
-  bool removeWindow(CQTileWindow *window);
-
-  //! create context menu
-  QMenu *createContextMenu(QWidget *parent) const;
-
-  //! update context menu
-  void updateContextMenu(QMenu *menu) const;
-
- public slots:
-  //! detach
-  void detachSlot();
-  //! attach
-  void attachSlot();
-  //! tile
-  void tileSlot();
-  //! maximize
-  void maximizeSlot();
-  //! restore
-  void restoreSlot();
-  //! close
-  void closeSlot();
-
- private slots:
-  //! attach (after timeout)
-  void attachPreviewSlot();
-
-  //! handle tab changed
-  void tabChangedSlot(int tabNum);
-
- private:
-  typedef CQTileArea::PlacementState PlacementState;
-
-  friend class CQTileArea;
-  friend class CQTileWindowTabBar;
-  friend class CQTileWindowTitle;
-
-  static int lastId_; //! last area index (incremented on use for unique id)
-
-  struct AttachData {
-    QTimer           *timer;      //! attach timer;
-    PlacementState    initState;  //! saved (original) state
-    PlacementState    state;      //! saved (detached) state
-    bool              initDocked; //! initial docked state
-    QRect             rect;       //! preview rect
-    CQTileArea::Side  side;       //! attach side
-    int               row1;       //! attach start row
-    int               col1;       //! attach start column
-    int               row2;       //! attach end row
-    int               col2;       //! attach end column
-
-    AttachData() :
-     timer(0), initState(), state(), initDocked(true),
-     rect(), side(CQTileArea::NO_SIDE), row1(0), col1(0), row2(0), col2(0) {
-    }
-  };
-
-  CQTileArea          *area_;       //! parent area
-  int                  id_;         //! window id
-  CQTileWindowTitle   *title_;      //! title widget
-  CQTileStackedWidget *stack_;      //! widget stack
-  CQTileWindowTabBar  *tabBar_;     //! tabbar
-  CQWidgetResizer     *resizer_;    //! detached resizer
-  Windows              windows_;    //! child window
-  bool                 detached_;   //! detached flag
-  bool                 floating_;   //! floating flag
-  AttachData           attachData_; //! attach data
-};
-
-//------
-
-//! class to represent a tile window
-//! a tile window has a titlebar
-class CQTileWindow : public QWidget {
-  Q_OBJECT
-
- public:
-  //! create window
-  CQTileWindow(CQTileWindowArea *area);
-
-  //! destroy window
- ~CQTileWindow();
-
-  //! get parent window area
-  CQTileWindowArea *area() const { return area_; }
-
-  //! set child widget
-  void setWidget(QWidget *w);
-  //! get child widget
-  QWidget *widget() const { return w_; }
-
-  //! get title
-  QString getTitle() const;
-
-  //! get icon
-  QIcon getIcon() const;
-
- private:
-  friend class CQTileArea;
-  friend class CQTileWindowArea;
-
-  //! is current valid (not being destroyed)
-  bool isValid() const { return valid_; }
-
-  //! set parent window area
-  void setArea(CQTileWindowArea *area);
-
-  //! handle hover events
-  bool event(QEvent *e) override;
-
-  //! handle close event
-  void closeEvent(QCloseEvent *closeEvent) override;
-
- private slots:
-  //! handle focus change
-  void focusChangedSlot(QWidget *old, QWidget *now);
-
-  //! handle child widget destroyed
-  void widgetDestroyed();
-
- private:
-  CQTileWindowArea *area_;  //! parent area
-  QWidget          *w_;     //! child widget
-  bool              valid_; //! is child widget valid
-};
-
-//------
-
-class CQTileWindowTabBar : public QTabBar {
-  Q_OBJECT
-
- public:
-  //! create tabbar
-  CQTileWindowTabBar(CQTileWindowArea *area);
-
- private:
-  //! handle mouse press
-  void mousePressEvent(QMouseEvent *e) override;
-
-  //! display context menu
-  void contextMenuEvent(QContextMenuEvent *e) override;
-
- private:
-  CQTileWindowArea *area_;        //! parent area
-  QMenu            *contextMenu_; //! context menu
-};
-
-//------
-
-#include <CQTitleBar.h>
-
-//! widget for window area title bar
-class CQTileWindowTitle : public CQTitleBar {
-  Q_OBJECT
-
- public:
-  //! create title
-  CQTileWindowTitle(CQTileWindowArea *area);
-
-  //! update state
-  void updateState();
-
- private:
-  //! get title
-  QString title() const override;
-
-  //! get icon
-  QIcon icon() const override;
-
-  //! get background color
-  QColor backgroundColor() const override;
-
-  //! get bar's color
-  QColor barColor() const override;
-
-  //! handle mouse events
-  void mousePressEvent  (QMouseEvent *e) override;
-  void mouseMoveEvent   (QMouseEvent *e) override;
-  void mouseReleaseEvent(QMouseEvent *e) override;
-
-  //! handle double click (expand)
-  void mouseDoubleClickEvent(QMouseEvent *e) override;
-
-  //! handle key press (escape)
-  void keyPressEvent(QKeyEvent *e) override;
-
-  //! display context menu
-  void contextMenuEvent(QContextMenuEvent *e) override;
-
-  //! handle hover
-  bool event(QEvent *e) override;
-
- private slots:
-  //! detach
-  void detachSlot();
-  //! maximize
-  void maximizeSlot();
-
- private:
-  struct MouseState {
-    bool   pressed;     //! is mouse pressed
-    bool   moved;       //! has move started
-    bool   escapePress; //! escape pressed
-    QPoint pressPos;    //! press position
-    bool   dragAll;     //! drag all tabs
-
-    MouseState(){
-      reset();
-    }
-
-    void reset() {
-      pressed     = false;
-      moved       = false;
-      escapePress = false;
-      dragAll     = false;
-    }
-  };
-
-  CQTileWindowArea *area_;           //! parent area
-  MouseState        mouseState_;     //! current mouse state
-  CQTitleBarButton *detachButton_;   //! attach/detach button
-  CQTitleBarButton *maximizeButton_; //! maximize/restore button
-  CQTitleBarButton *closeButton_;    //! close button
-  QMenu            *contextMenu_;    //! context menu
-};
-
-//------
-
-//! class for widget stack
-//! (all stack widgets are visible, just raised)
-class CQTileStackedWidget : public QWidget {
- Q_OBJECT
-
-  Q_PROPERTY(int currentIndex READ currentIndex WRITE setCurrentIndex NOTIFY currentChanged)
-  Q_PROPERTY(int count        READ count)
-
- public:
-  //! create stack
-  CQTileStackedWidget(CQTileWindowArea *area);
-
-  //! add child widget
-  int addWidget(QWidget *w);
-
-  //! add child widget at position
-  int insertWidget(int index, QWidget *w);
-
-  //! remove widget
-  void removeWidget(QWidget *w);
-
-  //! get current widget
-  QWidget *currentWidget() const;
-
-  //! get current widget index
-  int currentIndex() const;
-
-  //! get index of widget
-  int indexOf(QWidget *) const;
-
-  //! get widget at index
-  QWidget *widget(int index) const;
-
-  //! get number of widgets
-  int count() const;
-
-  //! size hint
-  QSize sizeHint() const override;
-
-  //! minimum size hint
-  QSize minimumSizeHint() const override;
-
- private:
-  //! handle show
-  void showEvent(QShowEvent *) override;
-
-  //! handle resize
-  void resizeEvent(QResizeEvent *) override;
-
-  //! update layout
-  void updateLayout();
-
- public slots:
-  //! set current index
-  void setCurrentIndex(int index);
-
-  //! set current widget
-  void setCurrentWidget(QWidget *w);
-
- signals:
-  //! notify current index changed
-  void currentChanged(int index);
-
-  //! notify widget removed
-  void widgetRemoved(int index);
-
- private:
-  typedef std::vector<QWidget *> Widgets;
-
-  CQTileWindowArea *area_;         //! parent area
-  int               currentIndex_; //! current index
-  Widgets           widgets_;      //! child widgets
-};
-
-//------
-
-//! splitter widget
-class CQTileAreaSplitter : public QWidget {
- public:
-  //! create splitter
-  CQTileAreaSplitter(CQTileArea *area);
-
-  //! set orientation and splitter key
-  void init(Qt::Orientation orient, int pos, int ind);
-
-  //! get/set used
-  bool used() const { return used_; }
-  void setUsed(bool used);
-
-  //! handle mouse events
-  void mousePressEvent  (QMouseEvent *e) override;
-  void mouseMoveEvent   (QMouseEvent *e) override;
-  void mouseReleaseEvent(QMouseEvent *e) override;
-
-  //! handle enter/leave events
-  void enterEvent(QEvent *e) override;
-  void leaveEvent(QEvent *e) override;
-
- private:
-  //! handle paint
-  void paintEvent(QPaintEvent *) override;
-
- private:
-  //! structure for mouse state
-  struct MouseState {
-    bool   pressed;  //! mouse pressed
-    QPoint pressPos; //! mouse press position
-
-    MouseState() {
-      pressed = false;
-    }
-  };
-
-  CQTileArea      *area_;       //! parent area
-  Qt::Orientation  orient_;     //! orientation
-  int              pos_;        //! position (row or column)
-  int              ind_;        //! splitter index
-  bool             used_;       //! used
-  MouseState       mouseState_; //! mouse state
-  bool             mouseOver_;  //! mouseOver
-};
-
-//------
-
-class CQTileAreaMenuIcon : public QLabel {
-  Q_OBJECT
-
- public:
-  CQTileAreaMenuIcon(CQTileArea *area);
-
-  void updateState();
-
- private:
-  void setIcon(const QIcon &icon);
-
- private:
-  CQTileArea *area_; //! parent area
-};
-
-//------
-
-class CQTileAreaMenuControls : public QFrame {
-  Q_OBJECT
-
- public:
-  CQTileAreaMenuControls(CQTileArea *area);
-
-  void updateState();
-
- private:
-  QToolButton *createButton(const char **data, const QString &tip);
-
- private:
-  CQTileArea  *area_;          //! parent area
-  QToolButton *detachButton_;  //! detach button
-  QToolButton *restoreButton_; //! restore button
-  QToolButton *closeButton_;   //! close button
+  using MenuIconP       = QPointer<CQTileAreaMenuIcon> ;
+  using MenuControlsP   = QPointer<CQTileAreaMenuControls>;
+  using SplitterWidgets = std::map<int, CQTileAreaSplitter *>;
+
+  QMainWindow*       window_             { nullptr }; //!< parent window
+  CTileGrid          grid_;                           //!< layout grid
+  bool               animateDrag_        { true};     //!< animate drag
+  QColor             titleActiveColor_;               //!< title active color
+  QColor             titleInactiveColor_;             //!< title inactive color
+  WindowAreas        areas_;                          //!< window areas
+  PlacementAreas     placementAreas_;                 //!< placed areas
+  RowHSplitterArray  hsplitters_;                     //!< horizontal splitters
+  ColVSplitterArray  vsplitters_;                     //!< vertical splitters
+  SplitterWidgets    splitterWidgets_;                //!< splitter widgets
+  Highlight          highlight_;                      //!< current highlight (for drag)
+  PlacementState     restoreState_;                   //!< saved state to restore from maximized
+  int                border_             { 0 };       //!< border
+  int                splitterSize_       { 3 };       //!< splitter size
+  CQRubberBand*      rubberBand_         { nullptr }; //!< rubber band (for drag)
+  CQTileWindowArea*  currentArea_        { nullptr }; //!< current window area
+  bool               hasControls_        { false };   //!< has menu controls
+  MenuIconP          menuIcon_;                       //!< menu bar icon button
+  MenuControlsP      menuControls_;                   //!< menu bar controls
+  int                defWidth_           { -1 };      //!< default (new) area width
+  int                defHeight_          { -1 };      //!< default (new) area height
 };
 
 #endif

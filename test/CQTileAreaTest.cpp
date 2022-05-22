@@ -1,7 +1,12 @@
 #include <CQTileAreaTest.h>
 #include <CQTileArea.h>
 
+#ifdef USE_CQAPP
+#include <CQApp.h>
+#else
 #include <QApplication>
+#endif
+
 #include <QHBoxLayout>
 #include <QPushButton>
 #include <QMenu>
@@ -108,7 +113,7 @@ readPlaceFile(const QString &placeFile)
       if (! readInteger(line, &pos, &num_rows)) return;
       if (! readInteger(line, &pos, &num_cols)) return;
 
-      cells.resize(num_rows*num_cols);
+      cells.resize(uint(num_rows*num_cols));
 
       row = 0;
     }
@@ -116,7 +121,7 @@ readPlaceFile(const QString &placeFile)
       int ii = row*num_cols;
 
       for (col = 0; col < num_cols; ++col) {
-        if (! readInteger(line, &pos, &cells[ii + col]))
+        if (! readInteger(line, &pos, &cells[uint(ii + col)]))
           return;
       }
 
@@ -142,7 +147,7 @@ readLine(FILE *fp, std::string &line)
     return false;
 
   while (! feof(fp)) {
-    char c = fgetc(fp);
+    char c = char(fgetc(fp));
 
     if (c == '\n')
       return true;
@@ -157,15 +162,15 @@ bool
 CQTileAreaTest::
 readInteger(const std::string &line, int *pos, int *value)
 {
-  while (*pos < int(line.size()) && isspace(line[*pos]))
+  while (*pos < int(line.size()) && isspace(line[uint(*pos)]))
     ++(*pos);
 
   int i = *pos;
 
-  while (*pos < int(line.size()) && isdigit(line[*pos]))
+  while (*pos < int(line.size()) && isdigit(line[uint(*pos)]))
     ++(*pos);
 
-  std::string istr = line.substr(i, *pos - i);
+  std::string istr = line.substr(uint(i), uint(*pos - i));
 
   if (istr == "")
     return false;
@@ -180,7 +185,11 @@ readInteger(const std::string &line, int *pos, int *value)
 int
 main(int argc, char **argv)
 {
+#ifdef USE_CQAPP
+  CQApp app(argc, argv);
+#else
   QApplication app(argc, argv);
+#endif
 
   QString placeFile;
 

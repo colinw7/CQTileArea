@@ -1,6 +1,8 @@
 TEMPLATE = app
 
-TARGET = 
+TARGET = CQTileArea
+
+QT += widgets
 
 DEPENDPATH += .
 
