@@ -1,4 +1,5 @@
 #include <CQWidgetResizer.h>
+#include <CQWidgetUtil.h>
 
 #include <QFrame>
 #include <QApplication>
@@ -6,8 +7,7 @@
 #include <QCursor>
 #include <QSizeGrip>
 #include <QMouseEvent>
-
-#include <CQWidgetUtil.h>
+#include <QScreen>
 
 namespace {
   const int RANGE = 4;
@@ -251,7 +251,11 @@ mouseMoveEvent(QMouseEvent *e)
   auto pp = globalPos - tlOffset_;
 
   // Workaround for window managers which refuse to move a tool window partially offscreen.
+#if 0
   auto desktop = QApplication::desktop()->availableGeometry(widget_);
+#else
+  auto desktop = QApplication::screens().at(0)->availableGeometry();
+#endif
 
   pp.rx() = qMax(pp.x(), desktop.left  ());
   pp.ry() = qMax(pp.y(), desktop.top   ());

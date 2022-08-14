@@ -286,10 +286,11 @@ getDetachPos(int w, int h) const
 {
   static int detachPos = 16;
 
-  //const auto &screenRect = QApplication::desktop()->availableGeometry();
-  auto *srn = QApplication::screens().at(0);
-  auto screenRect = srn->availableGeometry();
-
+#if 0
+  const auto &screenRect = QApplication::desktop()->availableGeometry();
+#else
+  auto screenRect = QApplication::screens().at(0)->availableGeometry();
+#endif
 
   if (detachPos + w >= screenRect.right () ||
       detachPos + h >= screenRect.bottom())
