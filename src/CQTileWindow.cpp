@@ -20,8 +20,8 @@ CQTileWindow(CQTileWindowArea *area) :
 
   // monitor focus changed
   // TODO: use single focus change monitor
-  connect(qApp, SIGNAL(focusChanged(QWidget*,QWidget*)),
-          this, SLOT(focusChangedSlot(QWidget*,QWidget*)));
+  connect(qApp, SIGNAL(focusChanged(QWidget*, QWidget*)),
+          this, SLOT(focusChangedSlot(QWidget*, QWidget*)));
 }
 
 CQTileWindow::

@@ -320,7 +320,7 @@ bool
 CTileGrid::
 getRegion(int id, int r1, int c1, int *nr, int *nc)
 {
-  // get extent (nrows,ncols) of area with specified id
+  // get extent (nrows, ncols) of area with specified id
   int r2 = r1;
   int c2 = c1;
 

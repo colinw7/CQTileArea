@@ -6,6 +6,7 @@
 #include <CQTileAreaConstants.h>
 
 #include <CQWidgetResizer.h>
+#include <CQWidgetUtil.h>
 
 #include <QApplication>
 #include <QVBoxLayout>
@@ -286,11 +287,7 @@ getDetachPos(int w, int h) const
 {
   static int detachPos = 16;
 
-#if 0
-  const auto &screenRect = QApplication::desktop()->availableGeometry();
-#else
-  auto screenRect = QApplication::screens().at(0)->availableGeometry();
-#endif
+  auto screenRect = CQWidgetUtil::desktopAvailableGeometry();
 
   if (detachPos + w >= screenRect.right () ||
       detachPos + h >= screenRect.bottom())

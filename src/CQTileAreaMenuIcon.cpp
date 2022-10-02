@@ -36,7 +36,7 @@ setIcon(const QIcon &icon)
   int s = height();
 
   if (! icon.isNull())
-    setPixmap(icon.pixmap(s,s));
+    setPixmap(icon.pixmap(s, s));
   else
-    setPixmap(QPixmap(s,s));
+    setPixmap(QPixmap(s, s));
 }

@@ -29,8 +29,8 @@ CQTileArea(QMainWindow *window) :
   setObjectName("tileArea");
 
   // title bar active/inactive colors
-  titleActiveColor_   = QColor(190,190,190);
-  titleInactiveColor_ = QColor(160,160,160);
+  titleActiveColor_   = QColor(190, 190, 190);
+  titleInactiveColor_ = QColor(160, 160, 160);
 
   // track mouse move for splitters (TODO: widgets)
   setMouseTracking(true);
@@ -2228,7 +2228,7 @@ getHSplitterAtPos(const QPoint &pos) const
     }
   }
 
-  return SplitterInd(-1,-1);
+  return SplitterInd(-1, -1);
 }
 
 // get vertical splitter at position
@@ -2251,7 +2251,7 @@ getVSplitterAtPos(const QPoint &pos) const
     }
   }
 
-  return SplitterInd(-1,-1);
+  return SplitterInd(-1, -1);
 }
 
 // set highlighted area and area side for specified (global) position
@@ -2597,8 +2597,8 @@ QSize
 CQTileArea::
 sizeHint() const
 {
-  std::map<int,int> widths;
-  std::map<int,int> heights;
+  std::map<int, int> widths;
+  std::map<int, int> heights;
 
   int ncells = grid_.nrows()*grid_.ncols();
 

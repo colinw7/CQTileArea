@@ -251,11 +251,7 @@ mouseMoveEvent(QMouseEvent *e)
   auto pp = globalPos - tlOffset_;
 
   // Workaround for window managers which refuse to move a tool window partially offscreen.
-#if 0
-  auto desktop = QApplication::desktop()->availableGeometry(widget_);
-#else
-  auto desktop = QApplication::screens().at(0)->availableGeometry();
-#endif
+  auto desktop = CQWidgetUtil::desktopAvailableGeometry(widget_);
 
   pp.rx() = qMax(pp.x(), desktop.left  ());
   pp.ry() = qMax(pp.y(), desktop.top   ());

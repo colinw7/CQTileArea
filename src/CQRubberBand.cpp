@@ -8,7 +8,7 @@
 class CQRubberBandStyle : public QCommonStyle {
  public:
   CQRubberBandStyle(CQRubberBand *band) :
-   band_(band), color_(255,0,0) {
+   band_(band), color_(255, 0, 0) {
   }
 
   CQRubberBand *band() const { return band_; }
