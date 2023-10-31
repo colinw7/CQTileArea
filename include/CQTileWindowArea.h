@@ -112,7 +112,7 @@ class CQTileWindowArea : public QFrame {
   //! update context menu
   void updateContextMenu(QMenu *menu) const;
 
- public slots:
+ public Q_SLOTS:
   //! detach
   void detachSlot();
   //! attach
@@ -126,7 +126,7 @@ class CQTileWindowArea : public QFrame {
   //! close
   void closeSlot();
 
- private slots:
+ private Q_SLOTS:
   //! attach (after timeout)
   void attachPreviewSlot();
 
@@ -155,7 +155,7 @@ class CQTileWindowArea : public QFrame {
     int               col2;       //! attach end column
 
     AttachData() :
-     timer(0), initState(), state(), initDocked(true),
+     timer(nullptr), initState(), state(), initDocked(true),
      rect(), side(CQTileArea::NO_SIDE), row1(0), col1(0), row2(0), col2(0) {
     }
   };

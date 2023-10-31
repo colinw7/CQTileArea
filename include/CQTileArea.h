@@ -386,7 +386,7 @@ class CQTileArea : public QWidget {
   //! tile windows
   void tileWindows();
 
- public slots:
+ public Q_SLOTS:
   //! maximize all windows
   void maximizeSlot();
   //! restore windows

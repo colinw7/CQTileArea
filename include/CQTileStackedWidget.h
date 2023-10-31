@@ -57,7 +57,7 @@ class CQTileStackedWidget : public QWidget {
   //! update layout
   void updateLayout();
 
- public slots:
+ public Q_SLOTS:
   //! set current index
   void setCurrentIndex(int index);
 

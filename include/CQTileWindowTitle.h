@@ -46,7 +46,7 @@ class CQTileWindowTitle : public CQTitleBar {
   //! handle hover
   bool event(QEvent *e) override;
 
- private slots:
+ private Q_SLOTS:
   //! detach
   void detachSlot();
   //! maximize

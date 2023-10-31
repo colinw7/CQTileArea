@@ -18,7 +18,7 @@ class CQRubberBandStyle : public QCommonStyle {
 
  private:
   void drawControl(ControlElement element, const QStyleOption *opt, QPainter *p,
-                   const QWidget *widget) const {
+                   const QWidget *widget) const override {
     if (element == CE_RubberBand) {
       const QStyleOptionRubberBand *rbOpt = qstyleoption_cast<const QStyleOptionRubberBand *>(opt);
 

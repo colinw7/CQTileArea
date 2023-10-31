@@ -47,7 +47,7 @@ class CQTileWindow : public QWidget {
   //! handle close event
   void closeEvent(QCloseEvent *closeEvent) override;
 
- private slots:
+ private Q_SLOTS:
   //! handle focus change
   void focusChangedSlot(QWidget *old, QWidget *now);
 
